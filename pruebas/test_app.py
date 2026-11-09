@@ -70,8 +70,32 @@ def fill(at, valores):
 
 def pruebas():
     print("== Apartado 1: páginas")
-    for p in ["🏠 Inicio", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"]:
+    for p in ["🏠 Inicio", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"]:
         check(pagina(p), f"Página {p}")
+    guias = [len(pagina(p).expander) for p in ["🏠 Inicio", "📈 Marketing", "📡 Telemetría", "🗄️ Base de datos"]]
+    ok = all(n >= 1 for n in guias)
+    print(f"[{'OK' if ok else 'FAIL'}] Guía «¿Cómo leer esta página?» en cada página {guias}")
+    if not ok: FALLAS.append("guías")
+
+    print("== Apartado 1b: 📈 Marketing (resultados contra SQL independiente)")
+    at = pagina("📈 Marketing")
+    textos = " ".join(m.value for m in at.markdown)
+    aha_sql = q("""SELECT COUNT(*) FROM users u
+                    WHERE (SELECT COUNT(*) FROM playlist_created p WHERE p.user_id=u.user_id
+                             AND p.created_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) >= 1
+                      AND (SELECT COUNT(*) FROM song_played s WHERE s.user_id=u.user_id
+                             AND s.played_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) >= 20""")[0][0]
+    ok = f'<div class="val">{aha_sql}</div>' in textos
+    print(f"[{'OK' if ok else 'FAIL'}] KPI usuarios con Aha! = {aha_sql} (igual que la consulta del script)")
+    if not ok: FALLAS.append("Marketing Aha")
+    mrr = q("SELECT IFNULL(SUM(price_mxn),0) FROM premium_subscribed WHERE status='activa'")[0][0]
+    ok = f'<div class="val">${float(mrr):,.0f}</div>' in textos
+    print(f"[{'OK' if ok else 'FAIL'}] KPI MRR = ${float(mrr):,.0f}")
+    if not ok: FALLAS.append("Marketing MRR")
+    conclusiones = [s.value for s in at.success] + [w.value for w in at.warning]
+    ok = any("hipótesis" in c.lower() for c in conclusiones) and any("significativa" in c.lower() for c in conclusiones)
+    print(f"[{'OK' if ok else 'FAIL'}] Conclusiones automáticas de la hipótesis y de la prueba A/B")
+    if not ok: FALLAS.append("Marketing conclusiones")
     if q("SELECT COUNT(*) FROM users")[0][0] == 0:
         at = pagina("🗄️ Base de datos")
         for g in ["Principales", "Telemetría", "Vistas KPI"]:

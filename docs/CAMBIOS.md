@@ -45,6 +45,31 @@ Severidad: 🔴 truena o pierde datos · 🟠 dato o comportamiento incorrecto �
 | A14 | 🟡 | Si fallaba un alta o una modificación en lote, la conexión quedaba abierta. | Se hace `rollback()` y se cierra la conexión. No se guarda nada a medias. |
 | A15 | 🟡 | La conexión estaba escrita en el código y el mensaje de error no decía qué hacer si la base no existía. | Variables de entorno (igual que el generador) y un mensaje que indica correr `base de datos.py`. |
 
+## Mejoras para la presentación (qué sí y qué no)
+
+### ✅ Sí se agregaron
+
+| # | Mejora | Por qué |
+|---|---|---|
+| M1 | **Página 📈 Marketing** con 5 pestañas: hipótesis Aha!, embudo, cohortes, ingresos y prueba A/B | Antes, el análisis de marketing (el Aha! Moment) solo se veía en la consola del script. Ahora se ve y se defiende dentro de la app |
+| M2 | **Validación de la hipótesis Aha!** con grupo de comparación, ventana de retención correcta (días 8 a 30, solo usuarios con ≥ 30 días) y conclusión automática | Convierte una lista de usuarios en evidencia: con Aha! la retención es 100% contra 80% y Premium 55% contra 12% |
+| M3 | **Prueba A/B con estadística**: prueba z de dos proporciones, valor p, IC del 95% y lift | La telemetría ya tenía grupos A/B, pero sin ninguna prueba. Ahora se puede afirmar que el modelo B es mejor (p = 0.0036) |
+| M4 | **Embudo de conversión estricto** y **cohortes semanales** (mapa de calor) | Son las herramientas clásicas de E-Marketing para ver dónde se pierden usuarios y cuánto tiempo se quedan |
+| M5 | **Ingresos**: MRR, ARPU, churn y la mezcla de suscripciones y publicidad por mes | Muestra el modelo de negocio freemium completo |
+| M6 | Guía **«ℹ️ ¿Cómo leer esta página?»** en cada página, **tendencia semanal** en Inicio y **fecha de los datos** en la barra lateral | Quien revisa la app entiende cada métrica sin explicación extra |
+
+Detalles de diseño corregidos durante la revisión visual: M7, la gráfica de la hipótesis tenía ancho fijo y se cortaba (ahora es adaptable y tiene etiquetas). M8, el texto de «Mayor fuga» no cabía en su tarjeta. M9, el embudo no estaba anidado (había más usuarios en una etapa que en la anterior). M10, las semanas sin actividad de las cohortes salían vacías en lugar de 0. M11, los meses salían en inglés y el KPI «semana 12» se calculaba con un solo usuario (ahora se usa la semana 4). M12, en Ingresos los colores estaban invertidos y se avisa que el último mes está incompleto.
+
+### ❌ No se agregaron (y por qué)
+
+| Idea | Motivo |
+|---|---|
+| Inicio de sesión / usuarios con contraseña | Es una herramienta de análisis local; agregaría complejidad sin aportar al análisis de marketing |
+| Exportar el reporte a PDF | Cada tabla ya se descarga en CSV desde la app y la documentación está en `docs/` |
+| Gráficas con Plotly | Sería otra dependencia; Altair ya viene con Streamlit y es suficiente |
+| Cambiar entre tema claro y oscuro | El tema oscuro estilo Spotify es parte de la identidad del proyecto |
+| Conectarse a la API real de Spotify | Necesita credenciales y cuentas reales; el proyecto trabaja con datos simulados controlados |
+
 ## Proyecto
 
 - Control de versiones con Git y `.gitignore` (excluye `__pycache__`, `.pyc` y configuración local).

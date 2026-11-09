@@ -4,7 +4,7 @@
 
 **Base de datos:** todas las pruebas se corrieron sobre la **base original `spotify_uadeo_db`**. No se usó ninguna base falsa ni de prueba.
 
-**Resultado final: ✅ todo en verde.** El generador corre sin errores, las 39 reglas de integridad dan 0 y pasan las 59 pruebas de la app (58 funcionales más la verificación de restauración, además del recorrido de los 45 usuarios). Los pop-ups se verificaron a mano en el navegador y, al terminar, la base quedó **idéntica** a como estaba antes de las pruebas (`CHECKSUM TABLE` en las 19 tablas).
+**Resultado final: ✅ todo en verde.** El generador corre sin errores, las 39 reglas de integridad dan 0 y pasan las 64 pruebas de la app (63 funcionales más la verificación de restauración, además del recorrido de los 45 usuarios). Los pop-ups se verificaron a mano en el navegador y, al terminar, la base quedó **idéntica** a como estaba antes de las pruebas (`CHECKSUM TABLE` en las 19 tablas).
 
 Los errores encontrados durante estas pruebas y su corrección están en [CAMBIOS.md](CAMBIOS.md).
 
@@ -68,6 +68,21 @@ Antes de las correcciones esta auditoría encontró **5 reglas en rojo** (G1, G2
 |---|---|
 | 🏠 Inicio, ✨ Para ti, 📡 Telemetría y 🗄️ Base de datos cargan sin excepciones ni errores | ✅ 4/4 |
 | Tablas vacías: la app conserva las columnas aunque una consulta no devuelva filas (error A1 de CAMBIOS.md) | ✅ (filtros sin resultados, buscador sin coincidencias, usuario sin historial) |
+
+## Apartado 3b · 📈 Marketing
+
+Los resultados de la app se compararon con consultas SQL hechas por separado y con un cálculo estadístico independiente (`statistics.NormalDist`).
+
+| Prueba | Resultado |
+|---|---|
+| La página y sus 5 pestañas cargan sin errores | ✅ |
+| Cada página tiene su guía «ℹ️ ¿Cómo leer esta página?» | ✅ |
+| KPI de usuarios con Aha! = 20, igual que la consulta de `base de datos.py` | ✅ |
+| Retención días 8-30: con Aha! 100% contra sin Aha! 80% (15 elegibles por grupo). Premium: 55% contra 12% | ✅ igual al cálculo independiente |
+| KPI MRR = $1,497 = `SUM(price_mxn)` de las suscripciones activas | ✅ |
+| Prueba A/B: CTR A 21.93%, B 23.74%, z = 2.92, p = 0.0036, igual que `NormalDist` | ✅ |
+| Conclusiones automáticas («la hipótesis se cumple», «diferencia significativa») | ✅ |
+| Revisión visual en el navegador de las 5 pestañas; se corrigieron 6 detalles de diseño (ver CAMBIOS.md, M7–M12) | ✅ |
 
 ## Apartado 4 · ✨ Para ti
 

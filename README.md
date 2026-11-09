@@ -30,7 +30,7 @@ Marketing Proyecto/
 ├── requirements.txt        # Dependencias de Python
 ├── .streamlit/config.toml  # Tema oscuro estilo Spotify
 ├── consu/
-│   ├── app_spotify.py      # Panel web en Streamlit (4 páginas)
+│   ├── app_spotify.py      # Panel web en Streamlit (5 páginas)
 │   └── .streamlit/config.toml
 ├── pruebas/
 │   ├── test_app.py         # Pruebas automáticas de la app sobre la base original
@@ -51,6 +51,7 @@ Marketing Proyecto/
 | streamlit | 1.64 | Requiere ≥ 1.50 (`st.dialog`, `segmented_control`, `width="stretch"`) |
 | pandas | 2.3 | |
 | mysql-connector-python | 26.7 | |
+| altair | 6.2 | Gráficas de la página Marketing (viene con Streamlit) |
 
 ## Instalación y puesta en marcha
 
@@ -66,12 +67,11 @@ Marketing Proyecto/
    > ⚠️ Este script **borra y vuelve a crear** todas las tablas de `spotify_uadeo_db`. Cualquier cambio hecho desde la app se pierde. Usa una semilla fija, así que siempre genera exactamente los mismos datos.
 
    Al terminar imprime cuántos registros insertó por tabla y los resultados de las consultas analíticas (Aha! Moment, Premium y telemetría).
-4. **Abre el panel web**:
-   ```bash
-   cd consu
-   streamlit run app_spotify.py
+4. **Abre el panel web** (funciona desde cualquier carpeta y aunque `streamlit` no esté en el PATH):
+   ```powershell
+   cd "C:\Users\isaac\OneDrive\Documentos\Marketing Proyecto\consu"; python -m streamlit run app_spotify.py
    ```
-   Se abre en http://localhost:8501.
+   Se abre en http://localhost:8501. Para detenerla, presiona `Ctrl + C`.
 
 ## Configuración de la conexión
 
@@ -94,12 +94,25 @@ cd consu; streamlit run app_spotify.py
 
 ## La app, apartado por apartado
 
-La barra lateral tiene un menú con 4 páginas.
+La barra lateral tiene un menú con 5 páginas y muestra hasta qué fecha llegan los datos. Cada página tiene un recuadro **ℹ️ ¿Cómo leer esta página?** que explica sus métricas.
 
 ### 🏠 Inicio — Panel general
-- **5 KPIs**: usuarios (y activos en los últimos 7 días), reproducciones, horas escuchadas, % Premium y CTR de recomendaciones.
+- **5 KPIs**: usuarios (y activos en los últimos 7 días), reproducciones (con la **tendencia semanal**: últimos 7 días contra los 7 anteriores), horas escuchadas, % Premium y CTR de recomendaciones.
 - **Reproducciones por día** (gráfica de área) y **géneros más escuchados** en horas.
 - **Top 10 canciones**: tarjetas de las 5 primeras y una tabla con reproducciones, % de skips y popularidad.
+
+### 📈 Marketing: análisis para la toma de decisiones
+Es la página central del proyecto de E-Marketing. Tiene 5 pestañas y todas sacan sus conclusiones automáticamente:
+
+| Pestaña | Qué responde |
+|---|---|
+| 🎯 Hipótesis Aha! | ¿Quienes crean ≥ 1 playlist y escuchan ≥ 20 canciones en sus primeros 7 días **retienen más y compran más Premium**? Compara a los que sí lo vivieron con los que no: retención de los días 8 a 30 (solo usuarios con ≥ 30 días de antigüedad) y conversión a Premium. Muestra si la hipótesis se cumple |
+| 🔻 Embudo | Embudo **estricto**: registro → escuchó → Aha! → vio la oferta Premium → prueba o compra → Premium activo. Señala la etapa donde más usuarios se pierden y cuántos Premium llegaron sin vivir el Aha! |
+| 📅 Cohortes | Mapa de calor de la retención semanal por semana de registro, con el promedio ponderado de la semana 1 y la semana 4 |
+| 💰 Ingresos | MRR, ARPU, churn, ingresos por publicidad, ingresos por mes (suscripciones y publicidad) y suscripciones por plan |
+| 🧪 Prueba A/B | CTR del modelo de recomendación A contra B con una **prueba z de dos proporciones**: valor p, IC del 95%, lift y qué modelo conviene usar |
+
+Con los datos actuales: quienes viven el Aha! retienen **100% contra 80%** y llegan a Premium **55% contra 12%** (×4.6). El modelo B mejora el CTR un **+8.3%** (p = 0.0036, significativo).
 
 ### ✨ Para ti — Recomendaciones personalizadas
 - En la barra lateral se elige el **usuario**. Se muestra su perfil: plan, ciudad, reproducciones, horas y géneros favoritos.
@@ -187,6 +200,7 @@ python pruebas/respaldo.py restaurar   # al terminar: deja la base como estaba y
 
 | Síntoma | Causa / solución |
 |---|---|
+| «streamlit no se reconoce como comando» | La carpeta de scripts de Python no está en el PATH: usa `python -m streamlit run app_spotify.py`, o agrega `%APPDATA%\Python\Python310\Scripts` al PATH y reabre la terminal |
 | «No se pudo conectar a MySQL» | MySQL no está encendido en XAMPP, o la base no existe: corre `python "base de datos.py"` |
 | `Unknown database 'spotify_uadeo_db'` | Falta generar la base (paso 3 de la instalación) |
 | `Access denied for user 'root'` | Tu MySQL tiene contraseña: define `MYSQL_PASSWORD` |

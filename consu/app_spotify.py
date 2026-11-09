@@ -1,9 +1,11 @@
 import os
 import sys
 import html
+import math
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+import altair as alt
 import mysql.connector
 import pandas as pd
 import streamlit as st
@@ -190,6 +192,12 @@ def barras(df, x, y, height=260):
         st.bar_chart(df, x=x, y=y, color=VERDE, height=height)
 
 
+def guia(texto):
+    """Recuadro plegable que explica cómo leer la página (pensado para quien revisa el proyecto)."""
+    with st.expander("ℹ️ ¿Cómo leer esta página?"):
+        st.markdown(texto)
+
+
 def portada(song_id, genero):
     return (f'<div class="cover" style="background:{GRADIENTES[int(song_id) % len(GRADIENTES)]}">'
             f'{ICONO_GENERO.get(genero, "🎵")}</div>')
@@ -220,8 +228,15 @@ with st.sidebar:
         justify-content:center;font-size:22px">🎧</div>
         <div><div style="color:#fff;font-weight:900;font-size:1.2rem">Spotify Analytics</div>
         <div style="font-size:.75rem">E-Marketing · UAdeO</div></div></div>""", unsafe_allow_html=True)
-    pagina = st.radio("Menú", ["🏠 Inicio", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"],
+    pagina = st.radio("Menú", ["🏠 Inicio", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"],
                       label_visibility="collapsed")
+    try:
+        _ult = consulta("SELECT MAX(played_at) AS ultima FROM song_played")
+        _ult = _ult.ultima.iloc[0] if not _ult.empty else None
+        _txt = pd.Timestamp(_ult).strftime("%d/%m/%Y %H:%M") if _ult is not None and pd.notna(_ult) else "sin datos"
+    except Exception:
+        _txt = "sin datos"
+    st.caption(f"🗄️ Base `{DB_NAME}`  \n📅 Datos hasta: **{_txt}**")
     st.markdown("---")
 
 
@@ -356,9 +371,15 @@ def popup_confirmar_borrado(tabla, campo_pk, ids):
 # PÁGINA: INICIO
 # =====================================================================
 def pagina_inicio():
-    st.markdown("""<div class="hero"><div class="logo">🎧</div><div><div class="sub">PANEL GENERAL</div>
+    st.markdown(f"""<div class="hero"><div class="logo">🎧</div><div><div class="sub">PANEL GENERAL</div>
         <h1>Spotify Analytics</h1><div class="sub">Usuarios, reproducciones, recomendaciones y telemetría
-        en tiempo real · base <code>spotify_uadeo_db</code></div></div></div>""", unsafe_allow_html=True)
+        · base <code>{esc(DB_NAME)}</code></div></div></div>""", unsafe_allow_html=True)
+    guia("""
+- **Usuarios activos**: escucharon algo en los 7 días previos a la última reproducción registrada.
+- **Reproducciones**: la flecha compara los **últimos 7 días contra los 7 anteriores** (tendencia semanal).
+- **Premium**: porcentaje de usuarios con una suscripción no cancelada.
+- **CTR de recomendaciones**: de cada 100 recomendaciones mostradas en la app, cuántas recibieron clic.
+- Para ver la hipótesis de retención, el embudo y los ingresos, abre **📈 Marketing**.""")
 
     r = consulta("""
         SELECT (SELECT COUNT(*) FROM users) AS usuarios,
@@ -367,11 +388,22 @@ def pagina_inicio():
                (SELECT ROUND(SUM(ms_played)/3600000, 0) FROM song_played) AS horas,
                (SELECT ROUND(100*AVG(clicked), 1) FROM recommendation_events) AS ctr,
                (SELECT COUNT(DISTINCT user_id) FROM song_played
-                 WHERE played_at >= (SELECT MAX(played_at) FROM song_played) - INTERVAL 7 DAY) AS activos
+                 WHERE played_at >= (SELECT MAX(played_at) FROM song_played) - INTERVAL 7 DAY) AS activos,
+               (SELECT COUNT(*) FROM song_played
+                 WHERE played_at > (SELECT MAX(played_at) FROM song_played) - INTERVAL 7 DAY) AS plays_7d,
+               (SELECT COUNT(*) FROM song_played
+                 WHERE played_at >  (SELECT MAX(played_at) FROM song_played) - INTERVAL 14 DAY
+                   AND played_at <= (SELECT MAX(played_at) FROM song_played) - INTERVAL 7 DAY) AS plays_prev_7d
     """).iloc[0]
+    p7, p_prev = int(r.plays_7d or 0), int(r.plays_prev_7d or 0)
+    if p_prev:
+        cambio = 100 * (p7 - p_prev) / p_prev
+        tendencia = f"{'▲' if cambio >= 0 else '▼'} {abs(cambio):.0f}% vs semana anterior"
+    else:
+        tendencia = f"{p7:,} en los últimos 7 días"
     c = st.columns(5)
     kpi(c[0], "Usuarios", f"{int(r.usuarios):,}", "👥", f"{int(r.activos or 0)} activos últimos 7 días")
-    kpi(c[1], "Reproducciones", f"{int(r.plays):,}", "▶️", "historial completo")
+    kpi(c[1], "Reproducciones", f"{int(r.plays):,}", "▶️", tendencia)
     kpi(c[2], "Horas escuchadas", f"{int(r.horas or 0):,}", "⏱️", "suma de ms_played")
     kpi(c[3], "Premium", f"{100*int(r.premium)/max(int(r.usuarios),1):.0f}%", "💎", f"{int(r.premium)} suscriptores")
     kpi(c[4], "CTR recomendaciones", f"{float(r.ctr or 0):.1f}%", "✨", "clics / impresiones")
@@ -447,6 +479,13 @@ def pagina_para_ti():
         <div class="meta">📍 {esc(u.city or 'México')} · {int(perfil.plays or 0):,} reproducciones ·
         {float(perfil.horas or 0):.1f} h escuchadas · {int(perfil.canciones or 0)} canciones distintas</div>
         <div style="margin-top:8px">{chips}</div></div></div>""", unsafe_allow_html=True)
+    guia("""
+- Elige un **usuario** en la barra lateral. Sus recomendaciones salen de **lo que ha escuchado** (`recomendador.py`):
+  `score = 0.45·género + 0.25·artista + 0.20·sonido + 0.10·popularidad`.
+- **% match** es ese score. **Detalles** explica el porqué y permite **Escuchar**, dar **Me gusta** o
+  **No me interesa**; cada acción se guarda en la base y cambia el estado de la recomendación.
+- **🔄 Regenerar** vuelve a calcular con el historial actual (prueba: escucha varias canciones de un género y regenera).
+- Un usuario sin historial (por ejemplo **Ana Gomez**) recibe las canciones más populares (*arranque en frío*).""")
 
     # Pop-up automático la primera vez que se abre cada usuario
     vistos = st.session_state.setdefault("_popup_vistos", set())
@@ -534,6 +573,13 @@ def pagina_telemetria():
     st.markdown("""<div class="hero"><div class="logo">📡</div><div><div class="sub">EVENTOS DE LA APP</div>
         <h1>Telemetría</h1><div class="sub">Todo lo que la app registra: recomendaciones, reproducción, sesiones,
         búsquedas, anuncios, suscripción y rendimiento</div></div></div>""", unsafe_allow_html=True)
+    guia("""
+La **telemetría** son los eventos que la app registra automáticamente mientras se usa. Cada pestaña es una tabla:
+- **CTR** = clics ÷ impresiones · **Guardado %** = guardadas ÷ reproducidas · **Skip %** = saltadas antes de 30 s.
+- **Reproducción**: de dónde se reprodujo (playlist, búsqueda, recomendación…) y por qué terminó.
+- **Suscripción**: el embudo de eventos (paywall → prueba → compra → renovación/cancelación).
+- **Anuncios**: solo los ven los usuarios *free*; es la otra fuente de ingresos además de Premium.
+- **Línea de tiempo**: todo lo que hizo un usuario, en orden, combinando todas las tablas.""")
 
     tabs = st.tabs(["✨ Recomendaciones", "▶️ Reproducción", "📱 Sesiones", "🔎 Búsquedas", "💳 Suscripción",
                     "📢 Anuncios", "⚙️ Rendimiento", "🕒 Línea de tiempo"])
@@ -615,6 +661,350 @@ def pagina_telemetria():
 # =====================================================================
 # PÁGINA: BASE DE DATOS (visor + altas / modificaciones / bajas en lote)
 # =====================================================================
+TEMA_ALTAIR = dict(background="transparent")
+MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
+
+
+def _alt_config(chart):
+    """Estilo oscuro común para las gráficas de Altair."""
+    return (chart.configure(**TEMA_ALTAIR)
+            .configure_axis(labelColor="#b3b3b3", titleColor="#b3b3b3", gridColor="#2a2a2a", domainColor="#3a3a3a")
+            .configure_legend(labelColor="#e5e5e5", titleColor="#b3b3b3")
+            .configure_view(strokeWidth=0))
+
+
+def prueba_z_proporciones(exitos_a, n_a, exitos_b, n_b):
+    """Prueba z de dos proporciones (bilateral). Devuelve (z, valor_p, IC95% de la diferencia B−A)."""
+    if min(n_a, n_b) == 0:
+        return 0.0, 1.0, (0.0, 0.0)
+    p_a, p_b = exitos_a / n_a, exitos_b / n_b
+    p_pool = (exitos_a + exitos_b) / (n_a + n_b)
+    se_pool = math.sqrt(p_pool * (1 - p_pool) * (1 / n_a + 1 / n_b))
+    z = (p_b - p_a) / se_pool if se_pool else 0.0
+    valor_p = math.erfc(abs(z) / math.sqrt(2))
+    se_dif = math.sqrt(p_a * (1 - p_a) / n_a + p_b * (1 - p_b) / n_b)
+    return z, valor_p, (p_b - p_a - 1.96 * se_dif, p_b - p_a + 1.96 * se_dif)
+
+
+def fecha_referencia():
+    """Fecha 'de hoy' para los datos: la última reproducción registrada (los datos son simulados)."""
+    df = consulta("SELECT MAX(played_at) AS ref FROM song_played")
+    ref = df.ref.iloc[0] if not df.empty else None
+    return pd.Timestamp(ref) if ref is not None and pd.notna(ref) else pd.Timestamp(datetime.now())
+
+
+def pct(a, b):
+    return 100.0 * a / b if b else 0.0
+
+
+def pagina_marketing():
+    st.markdown("""<div class="hero"><div class="logo">📈</div><div><div class="sub">ANÁLISIS DE MARKETING</div>
+        <h1>Marketing</h1><div class="sub">Hipótesis de retención (Aha! Moment), embudo de conversión, cohortes,
+        ingresos y prueba A/B del recomendador</div></div></div>""", unsafe_allow_html=True)
+    guia("""
+- **🎯 Hipótesis Aha!**: *“Un usuario que crea al menos 1 playlist y escucha 20 o más canciones en sus primeros
+  7 días se queda y se vuelve Premium”*. Se comparan los usuarios que **sí** vivieron el Aha! contra los que **no**.
+  La **retención** se mide entre los días 8 y 30 después del registro, y solo cuenta a quienes ya llevan 30 días registrados.
+- **🔻 Embudo**: cuántos usuarios llegan a cada etapa, desde que se registran hasta que pagan Premium.
+- **📅 Cohortes**: los usuarios se agrupan por la semana en que se registraron; cada celda dice qué % siguió
+  escuchando música *n* semanas después. Lo ideal es que los colores se mantengan verdes hacia la derecha.
+- **💰 Ingresos**: MRR (ingreso mensual recurrente de suscripciones activas), ARPU (ingreso promedio por usuario),
+  churn (porcentaje de suscripciones canceladas) y la publicidad que pagan los usuarios free.
+- **🧪 Prueba A/B**: compara el CTR del modelo de recomendación del grupo A contra el B con una **prueba z de
+  dos proporciones**. Si el valor p es menor a 0.05, la diferencia es estadísticamente significativa.
+- La fecha de referencia («hoy») es la **última reproducción registrada**, porque los datos son simulados.""")
+
+    ref = fecha_referencia()
+    tabs = st.tabs(["🎯 Hipótesis Aha!", "🔻 Embudo", "📅 Cohortes", "💰 Ingresos", "🧪 Prueba A/B"])
+
+    # ---------------- Hipótesis Aha! Moment ----------------
+    with tabs[0]:
+        df = consulta("""
+            SELECT u.user_id, u.username, u.signup_date, u.account_type,
+                   (SELECT COUNT(*) FROM playlist_created p WHERE p.user_id = u.user_id
+                       AND p.created_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) AS playlists_7d,
+                   (SELECT COUNT(*) FROM song_played s WHERE s.user_id = u.user_id
+                       AND s.played_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) AS plays_7d,
+                   (SELECT COUNT(*) FROM song_played s WHERE s.user_id = u.user_id
+                       AND s.played_at >  u.signup_date + INTERVAL 7 DAY
+                       AND s.played_at <= u.signup_date + INTERVAL 30 DAY) AS plays_8_30,
+                   (SELECT COUNT(*) FROM song_played s WHERE s.user_id = u.user_id) AS plays_total,
+                   EXISTS(SELECT 1 FROM premium_subscribed ps WHERE ps.user_id = u.user_id) AS fue_premium
+              FROM users u ORDER BY u.user_id""")
+        if df.empty:
+            st.info("No hay usuarios registrados.")
+        else:
+            df["signup_date"] = pd.to_datetime(df.signup_date)
+            df["aha"] = (df.playlists_7d >= 1) & (df.plays_7d >= 20)
+            df["elegible"] = df.signup_date <= ref - pd.Timedelta(days=30)
+            df["retenido"] = df.plays_8_30 > 0
+            df["fue_premium"] = df.fue_premium.astype(int) == 1
+            n_aha = int(df.aha.sum())
+
+            filas = []
+            for nombre, g in [("Con Aha! Moment", df[df.aha]), ("Sin Aha! Moment", df[~df.aha])]:
+                ge = g[g.elegible]
+                filas.append({"Grupo": nombre, "Usuarios": len(g), "Elegibles (≥30 días)": len(ge),
+                              "Retención días 8-30 %": round(pct(ge.retenido.sum(), len(ge)), 1) if len(ge) else None,
+                              "Conversión a Premium %": round(pct(g.fue_premium.sum(), len(g)), 1),
+                              "Reproducciones promedio": round(g.plays_total.mean(), 1) if len(g) else 0})
+            comp = pd.DataFrame(filas)
+            con, sin = comp.iloc[0], comp.iloc[1]
+
+            c = st.columns(4)
+            kpi(c[0], "Usuarios con Aha!", f"{n_aha}", "🎯", f"{pct(n_aha, len(df)):.0f}% de {len(df)} usuarios")
+            ret_con = "—" if pd.isna(con["Retención días 8-30 %"]) else f"{con['Retención días 8-30 %']:.0f}%"
+            ret_sin = "—" if pd.isna(sin["Retención días 8-30 %"]) else f"{sin['Retención días 8-30 %']:.0f}%"
+            kpi(c[1], "Retención con Aha!", ret_con, "🔁", f"sin Aha!: {ret_sin}")
+            kpi(c[2], "Premium con Aha!", f"{con['Conversión a Premium %']:.0f}%", "💎",
+                f"sin Aha!: {sin['Conversión a Premium %']:.0f}%")
+            veces = (con["Conversión a Premium %"] / sin["Conversión a Premium %"]
+                     if sin["Conversión a Premium %"] else None)
+            kpi(c[3], "Efecto en Premium", f"×{veces:.1f}" if veces else "—", "🚀", "con Aha! vs sin Aha!")
+            st.write("")
+
+            largo = comp.melt(id_vars="Grupo", value_vars=["Retención días 8-30 %", "Conversión a Premium %"],
+                              var_name="Métrica", value_name="Porcentaje").dropna()
+            base_g = alt.Chart(largo).encode(
+                x=alt.X("Métrica:N", title=None, axis=alt.Axis(labelAngle=0, labelLimit=400)),
+                xOffset=alt.XOffset("Grupo:N"),
+                y=alt.Y("Porcentaje:Q", title="%", scale=alt.Scale(domain=[0, 105])))
+            graf = base_g.mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+                color=alt.Color("Grupo:N", title=None, scale=alt.Scale(range=[VERDE, "#535353"]),
+                                legend=alt.Legend(orient="top")),
+                tooltip=["Grupo", "Métrica", "Porcentaje"])
+            etiquetas = base_g.mark_text(dy=-8, color="#ffffff").encode(text=alt.Text("Porcentaje:Q", format=".0f"))
+            st.altair_chart(_alt_config((graf + etiquetas).properties(height=280)), width="stretch")
+            st.dataframe(comp, hide_index=True, width="stretch")
+
+            # Conclusión automática
+            if not pd.isna(con["Retención días 8-30 %"]) and not pd.isna(sin["Retención días 8-30 %"]):
+                dif_ret = con["Retención días 8-30 %"] - sin["Retención días 8-30 %"]
+                dif_prem = con["Conversión a Premium %"] - sin["Conversión a Premium %"]
+                if dif_ret > 0 and dif_prem > 0:
+                    st.success(f"✅ **La hipótesis se cumple con estos datos.** Quienes viven el Aha! Moment retienen "
+                               f"**{dif_ret:.0f} puntos porcentuales más** y se vuelven Premium **{dif_prem:.0f} puntos "
+                               f"más** que quienes no lo viven.")
+                else:
+                    st.warning(f"⚠️ **La hipótesis no se cumple del todo**: diferencia en retención {dif_ret:+.0f} pp, "
+                               f"en Premium {dif_prem:+.0f} pp.")
+                if min(con["Elegibles (≥30 días)"], sin["Elegibles (≥30 días)"]) < 10:
+                    st.caption("Nota: algún grupo tiene menos de 10 usuarios elegibles; tómese como evidencia "
+                               "exploratoria, no concluyente.")
+            with st.expander(f"👥 Ver los {n_aha} usuarios que viven el Aha! Moment"):
+                st.dataframe(df[df.aha][["user_id", "username", "signup_date", "playlists_7d", "plays_7d",
+                                         "plays_8_30", "account_type"]],
+                             hide_index=True, width="stretch", column_config={
+                                 "user_id": "ID", "username": "Usuario", "signup_date": "Registro",
+                                 "playlists_7d": "Playlists 7 días", "plays_7d": "Canciones 7 días",
+                                 "plays_8_30": "Canciones días 8-30", "account_type": "Plan"})
+
+    # ---------------- Embudo ----------------
+    with tabs[1]:
+        # Una fila por usuario con cada etapa (0/1); el embudo es ESTRICTO: cada etapa
+        # solo cuenta a quienes también pasaron todas las anteriores.
+        f = consulta("""
+            SELECT u.user_id,
+                   EXISTS(SELECT 1 FROM song_played s WHERE s.user_id = u.user_id) AS escucho,
+                   ((SELECT COUNT(*) FROM playlist_created p WHERE p.user_id = u.user_id
+                        AND p.created_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) >= 1
+                    AND (SELECT COUNT(*) FROM song_played s WHERE s.user_id = u.user_id
+                        AND s.played_at BETWEEN u.signup_date AND u.signup_date + INTERVAL 7 DAY) >= 20) AS aha,
+                   EXISTS(SELECT 1 FROM subscription_events e WHERE e.user_id = u.user_id
+                           AND e.event_type = 'paywall_view') AS paywall,
+                   EXISTS(SELECT 1 FROM subscription_events e WHERE e.user_id = u.user_id
+                           AND e.event_type IN ('trial_started', 'purchase')) AS prueba_compra,
+                   u.account_type = 'premium' AS premium
+              FROM users u""")
+        total = len(f)
+        if total == 0:
+            st.info("No hay usuarios registrados.")
+        else:
+            nombres = [("1. Se registraron", None), ("2. Escucharon al menos 1 canción", "escucho"),
+                       ("3. Vivieron el Aha! Moment", "aha"), ("4. Vieron la oferta Premium", "paywall"),
+                       ("5. Iniciaron prueba o compraron", "prueba_compra"), ("6. Premium activo hoy", "premium")]
+            pasa = pd.Series(True, index=f.index)
+            etapas = []
+            for nombre, col in nombres:
+                if col:
+                    pasa = pasa & (f[col].astype(int) == 1)
+                etapas.append((nombre, int(pasa.sum())))
+            emb = pd.DataFrame(etapas, columns=["Etapa", "Usuarios"])
+            emb["% del total"] = emb.Usuarios.map(lambda v: round(pct(v, total), 1))
+            emb["% vs etapa anterior"] = [None] + [round(pct(b, a), 1)
+                                                   for a, b in zip(emb.Usuarios[:-1], emb.Usuarios[1:])]
+            emb["Etiqueta"] = emb.apply(lambda r: f"{r.Usuarios}  ({r['% del total']:.0f}%)", axis=1)
+            premium_total = int((f.premium.astype(int) == 1).sum())
+            premium_sin_aha = premium_total - int(emb.Usuarios.iloc[-1])
+
+            c = st.columns(3)
+            kpi(c[0], "Embudo completo", f"{emb['% del total'].iloc[-1]:.1f}%", "💎",
+                f"{emb.Usuarios.iloc[-1]} de {total} llegan a Premium")
+            caida = emb.assign(perdidos=emb.Usuarios.shift(1) - emb.Usuarios).iloc[1:]
+            peor = caida.loc[caida.perdidos.idxmax()]
+            kpi(c[1], "Mayor fuga", f"−{int(peor.perdidos)} usuarios", "🕳️", f"al llegar a: {peor.Etapa.split('. ', 1)[1]}")
+            kpi(c[2], "Premium sin Aha!", f"{premium_sin_aha}", "🧭", f"de {premium_total} Premium activos")
+            st.write("")
+            base = alt.Chart(emb).encode(y=alt.Y("Etapa:N", sort=None, title=None, axis=alt.Axis(labelLimit=260)))
+            barras_emb = base.mark_bar(color=VERDE, cornerRadiusEnd=4).encode(
+                x=alt.X("Usuarios:Q", title="Usuarios"), tooltip=["Etapa", "Usuarios", "% del total", "% vs etapa anterior"])
+            texto = base.mark_text(align="left", dx=6, color="#ffffff").encode(x="Usuarios:Q", text="Etiqueta:N")
+            st.altair_chart(_alt_config((barras_emb + texto).properties(height=300)), width="stretch")
+            st.dataframe(emb.drop(columns=["Etiqueta"]), hide_index=True, width="stretch")
+            st.caption("Embudo estricto: cada etapa cuenta solo a los usuarios que también pasaron todas las anteriores. "
+                       "«Premium sin Aha!» son los que pagan Premium sin haber vivido el Aha! Moment (llegaron por "
+                       "otro camino).")
+
+    # ---------------- Cohortes ----------------
+    with tabs[2]:
+        usuarios = consulta("SELECT user_id, signup_date FROM users")
+        act = consulta("""SELECT DISTINCT sp.user_id, FLOOR(DATEDIFF(sp.played_at, u.signup_date) / 7) AS semana
+                            FROM song_played sp JOIN users u USING (user_id)
+                           WHERE sp.played_at >= u.signup_date""")
+        if usuarios.empty:
+            st.info("No hay usuarios registrados.")
+        else:
+            usuarios["signup_date"] = pd.to_datetime(usuarios.signup_date)
+            usuarios["inicio"] = (usuarios.signup_date - pd.to_timedelta(usuarios.signup_date.dt.dayofweek, unit="D")
+                                  ).dt.normalize()
+            tam = usuarios.groupby("inicio").size()
+            activos = {}
+            if not act.empty:
+                act["semana"] = act.semana.astype(int)
+                act = act.merge(usuarios[["user_id", "inicio"]], on="user_id")
+                activos = act.groupby(["inicio", "semana"]).user_id.nunique().to_dict()
+            # Rejilla completa: cada cohorte con todas sus semanas ya terminadas (las que no tuvieron
+            # actividad valen 0, no se dejan en blanco). La semana k termina para toda la cohorte
+            # (registros del lunes al domingo) el día inicio + 7·(k+2).
+            filas = []
+            for inicio in tam.index:
+                k = 0
+                while k <= 12 and inicio + pd.Timedelta(days=7 * (k + 2)) <= ref:
+                    filas.append({"inicio": inicio, "semana": k, "activos": activos.get((inicio, k), 0)})
+                    k += 1
+            coh = pd.DataFrame(filas, columns=["inicio", "semana", "activos"])
+            if coh.empty:
+                st.info("Todavía no hay semanas completas para medir retención.")
+            else:
+                coh["tamaño"] = coh.inicio.map(tam)
+                coh["retencion"] = (100 * coh.activos / coh["tamaño"]).round(0)
+                coh["Cohorte"] = coh.apply(lambda f: f"Sem. {f.inicio.day:02d} {MESES[f.inicio.month - 1]} "
+                                                     f"(n={int(f['tamaño'])})", axis=1)
+                coh["Semana"] = coh.semana.map(lambda s: f"S{s}")
+                orden_sem = [f"S{i}" for i in range(int(coh.semana.max()) + 1)]
+                orden_coh = coh.sort_values("inicio").Cohorte.unique().tolist()
+                sumas = coh.groupby("semana")[["activos", "tamaño"]].sum()
+                prom = (100 * sumas.activos / sumas["tamaño"]).fillna(0)
+                c = st.columns(3)
+                kpi(c[0], "Cohortes semanales", f"{coh.inicio.nunique()}", "📅", "semana de registro")
+                kpi(c[1], "Retención semana 1", f"{prom.get(1, 0):.0f}%", "🔁",
+                    f"{int(sumas['tamaño'].get(1, 0))} usuarios medidos")
+                # Semana 4 (≈ un mes) si ya se puede medir; si no, la última disponible
+                s4 = 4 if 4 in prom.index else int(prom.index.max())
+                kpi(c[2], f"Retención semana {s4}", f"{prom.get(s4, 0):.0f}%", "📉",
+                    f"{int(sumas['tamaño'].get(s4, 0))} usuarios medidos")
+                st.write("")
+                calor = alt.Chart(coh).mark_rect(cornerRadius=3).encode(
+                    x=alt.X("Semana:N", sort=orden_sem, title="Semanas desde el registro", axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("Cohorte:N", sort=orden_coh, title=None),
+                    color=alt.Color("retencion:Q", title="% activos",
+                                    scale=alt.Scale(domain=[0, 100], range=["#1f1f1f", "#0d5c2b", VERDE])),
+                    tooltip=["Cohorte", "Semana", "activos", "tamaño", "retencion"])
+                num = alt.Chart(coh).mark_text(fontSize=11, color="#ffffff").encode(
+                    x=alt.X("Semana:N", sort=orden_sem), y=alt.Y("Cohorte:N", sort=orden_coh),
+                    text=alt.Text("retencion:Q", format=".0f"))
+                st.altair_chart(_alt_config((calor + num).properties(height=max(220, 26 * len(orden_coh)))),
+                                width="stretch")
+                st.caption("S0 = la semana del registro. Solo se muestran semanas que ya terminaron para toda la cohorte.")
+
+    # ---------------- Ingresos ----------------
+    with tabs[3]:
+        i = consulta("""
+            SELECT (SELECT IFNULL(SUM(price_mxn), 0) FROM premium_subscribed WHERE status = 'activa') AS mrr,
+                   (SELECT COUNT(*) FROM premium_subscribed WHERE status = 'activa') AS activas,
+                   (SELECT COUNT(*) FROM premium_subscribed WHERE status = 'prueba') AS en_prueba,
+                   (SELECT COUNT(*) FROM premium_subscribed WHERE status = 'cancelada') AS canceladas,
+                   (SELECT COUNT(*) FROM premium_subscribed) AS total_subs,
+                   (SELECT COUNT(*) FROM users) AS usuarios,
+                   (SELECT IFNULL(SUM(revenue_mxn), 0) FROM ad_events WHERE event_at > %s - INTERVAL 30 DAY) AS ads_30d
+        """, (ref.to_pydatetime(),)).iloc[0]
+        arpu = (float(i.mrr) + float(i.ads_30d)) / max(int(i.usuarios), 1)
+        c = st.columns(4)
+        kpi(c[0], "MRR", f"${float(i.mrr):,.0f}", "💰", f"{int(i.activas)} suscripciones activas")
+        kpi(c[1], "ARPU mensual", f"${arpu:,.2f}", "👤", "(MRR + anuncios 30 días) / usuarios")
+        kpi(c[2], "Churn", f"{pct(i.canceladas, i.total_subs):.1f}%", "🚪",
+            f"{int(i.canceladas)} de {int(i.total_subs)} suscripciones")
+        kpi(c[3], "Anuncios (30 días)", f"${float(i.ads_30d):,.2f}", "📢", f"{int(i.en_prueba)} en prueba gratis")
+        st.write("")
+        meses = consulta("""
+            SELECT DATE_FORMAT(event_at, '%Y-%m') AS mes, 'Suscripciones' AS fuente, SUM(price_mxn) AS ingreso
+              FROM subscription_events WHERE event_type IN ('purchase', 'renewal') GROUP BY mes
+            UNION ALL
+            SELECT DATE_FORMAT(event_at, '%Y-%m'), 'Publicidad', SUM(revenue_mxn)
+              FROM ad_events GROUP BY DATE_FORMAT(event_at, '%Y-%m')
+            ORDER BY mes""")
+        c1, c2 = st.columns([3, 2])
+        with c1:
+            st.markdown("**Ingresos por mes (MXN)**")
+            if meses.empty:
+                st.caption("Sin datos todavía.")
+            else:
+                g = alt.Chart(meses).mark_bar(cornerRadiusTopLeft=3, cornerRadiusTopRight=3).encode(
+                    x=alt.X("mes:N", title=None, axis=alt.Axis(labelAngle=0)),
+                    y=alt.Y("sum(ingreso):Q", title="MXN"),
+                    color=alt.Color("fuente:N", title=None, legend=alt.Legend(orient="top"),
+                                    scale=alt.Scale(domain=["Suscripciones", "Publicidad"], range=[VERDE, "#b3b3b3"])),
+                    tooltip=["mes", "fuente", alt.Tooltip("ingreso:Q", format=",.2f")]).properties(height=280)
+                st.altair_chart(_alt_config(g), width="stretch")
+        with c2:
+            st.markdown("**Suscripciones por plan**")
+            planes = consulta("""SELECT plan_type AS plan, COUNT(*) AS suscripciones,
+                                        SUM(status = 'activa') AS activas, IFNULL(SUM(IF(status = 'activa', price_mxn, 0)), 0) AS mrr
+                                   FROM premium_subscribed GROUP BY plan_type ORDER BY mrr DESC""")
+            st.dataframe(planes, hide_index=True, width="stretch", column_config={
+                "plan": "Plan", "suscripciones": "Total", "activas": "Activas",
+                "mrr": st.column_config.NumberColumn("MRR", format="$%.0f")})
+        st.caption(f"MRR = suma del precio mensual de las suscripciones activas (las de prueba gratis no pagan todavía). "
+                   f"El último mes puede estar incompleto: los datos llegan hasta el {ref:%d/%m/%Y}.")
+
+    # ---------------- Prueba A/B ----------------
+    with tabs[4]:
+        ab = consulta("""SELECT ab_test_group AS grupo, GROUP_CONCAT(DISTINCT model_version ORDER BY model_version SEPARATOR ', ') AS modelos,
+                                COUNT(*) AS impresiones, SUM(clicked) AS clics, SUM(played) AS reproducidas,
+                                SUM(saved) AS guardadas
+                           FROM recommendation_events GROUP BY ab_test_group ORDER BY ab_test_group""")
+        if set(ab.grupo) != {"A", "B"}:
+            st.info("Se necesitan impresiones de los grupos A y B para la prueba.")
+        else:
+            a, b = ab.set_index("grupo").loc["A"], ab.set_index("grupo").loc["B"]
+            ctr_a, ctr_b = pct(a.clics, a.impresiones), pct(b.clics, b.impresiones)
+            z, valor_p, (ic_lo, ic_hi) = prueba_z_proporciones(int(a.clics), int(a.impresiones),
+                                                              int(b.clics), int(b.impresiones))
+            lift = (ctr_b - ctr_a) / ctr_a * 100 if ctr_a else 0
+            c = st.columns(4)
+            kpi(c[0], "CTR grupo A", f"{ctr_a:.2f}%", "🅰️", f"{int(a.impresiones):,} impresiones")
+            kpi(c[1], "CTR grupo B", f"{ctr_b:.2f}%", "🅱️", f"{int(b.impresiones):,} impresiones")
+            kpi(c[2], "Lift de B", f"{lift:+.1f}%", "📊", "cambio relativo del CTR")
+            kpi(c[3], "Valor p", f"{valor_p:.4f}" if valor_p >= 0.0001 else "< 0.0001", "🧪", f"z = {z:.2f}")
+            st.write("")
+            if valor_p < 0.05:
+                ganador = "B" if ctr_b > ctr_a else "A"
+                st.success(f"✅ **Diferencia estadísticamente significativa (95% de confianza).** El modelo del grupo "
+                           f"**{ganador}** tiene mejor CTR. La diferencia real B−A está entre **{100*ic_lo:+.2f}** y "
+                           f"**{100*ic_hi:+.2f}** puntos porcentuales. Recomendación: usar el modelo {ganador} "
+                           f"para todos los usuarios.")
+            else:
+                st.warning(f"⚠️ **No hay diferencia significativa** (p = {valor_p:.3f} ≥ 0.05). Con estos datos no se "
+                           f"puede afirmar que un modelo sea mejor que el otro; conviene seguir la prueba.")
+            tabla = ab.assign(**{"CTR %": (100 * ab.clics / ab.impresiones).round(2),
+                                 "Guardado %": (100 * ab.guardadas / ab.reproducidas.replace(0, pd.NA)).astype(float).round(2)})
+            st.dataframe(tabla, hide_index=True, width="stretch", column_config={
+                "grupo": "Grupo", "modelos": "Versión del modelo", "impresiones": "Impresiones", "clics": "Clics",
+                "reproducidas": "Reproducidas", "guardadas": "Guardadas"})
+            st.caption("Prueba z de dos proporciones, bilateral: H₀ = el CTR de A es igual al de B. "
+                       "El intervalo es el IC del 95% para la diferencia de CTR.")
+
+
 TABLAS = {
     "Principales": ["users", "songs", "song_played", "playlist_created", "song_liked", "premium_subscribed",
                     "user_recommendations"],
@@ -646,8 +1036,15 @@ def pagina_base_datos():
     campo_pk = pk_map.get(tabla_seleccionada)
 
     st.markdown(f"""<div class="hero"><div class="logo">🗄️</div><div><div class="sub">TABLA</div>
-        <h1>{esc(tabla_seleccionada)}</h1><div class="sub">spotify_uadeo_db</div></div></div>""",
+        <h1>{esc(tabla_seleccionada)}</h1><div class="sub">{esc(DB_NAME)}</div></div></div>""",
                 unsafe_allow_html=True)
+    guia("""
+- Elige el **grupo** y la **tabla** en la barra lateral. El buscador filtra en todas las columnas; con el icono de
+  descarga de la tabla se exporta a **CSV**.
+- **Gestión en lote** (1 a 5 registros): **Altas** valida campos y fechas (`AAAA-MM-DD HH:MM:SS`); **Modificar**
+  conserva lo que dejes vacío; **Bajas** pide confirmación y borra también los datos dependientes.
+- Las tablas de telemetría y las vistas `v_…` son de solo lectura (se generan automáticamente).
+- El diccionario de datos completo está en `docs/DICCIONARIO_DATOS.md`.""")
 
     # ---- Visualización ----
     try:
@@ -853,6 +1250,8 @@ def pagina_base_datos():
 # =====================================================================
 if pagina == "🏠 Inicio":
     pagina_inicio()
+elif pagina == "📈 Marketing":
+    pagina_marketing()
 elif pagina == "✨ Para ti":
     pagina_para_ti()
 elif pagina == "📡 Telemetría":
