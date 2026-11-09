@@ -27,6 +27,7 @@ Todo se consulta desde un panel web hecho con **Streamlit**, que también permit
 Marketing Proyecto/
 ├── base de datos.py        # Crea la base spotify_uadeo_db, la llena con datos simulados y corre consultas analíticas
 ├── recomendador.py         # Motor de recomendaciones según la música escuchada (lo usan el script y la app)
+├── iniciar.bat             # Abre la app con doble clic (no depende del PATH)
 ├── requirements.txt        # Dependencias de Python
 ├── .streamlit/config.toml  # Tema oscuro estilo Spotify
 ├── consu/
@@ -67,7 +68,9 @@ Marketing Proyecto/
    > ⚠️ Este script **borra y vuelve a crear** todas las tablas de `spotify_uadeo_db`. Cualquier cambio hecho desde la app se pierde. Usa una semilla fija, así que siempre genera exactamente los mismos datos.
 
    Al terminar imprime cuántos registros insertó por tabla y los resultados de las consultas analíticas (Aha! Moment, Premium y telemetría).
-4. **Abre el panel web** (funciona desde cualquier carpeta y aunque `streamlit` no esté en el PATH):
+4. **Abre el panel web.** La forma más fácil es dar **doble clic en `iniciar.bat`**, o escribir `.\iniciar.bat` en la terminal desde la carpeta del proyecto. Revisa que Python esté instalado, instala las dependencias si faltan y abre la app; no necesita que `streamlit` esté en el PATH.
+
+   También se puede abrir a mano (funciona desde cualquier carpeta):
    ```powershell
    cd "C:\Users\isaac\OneDrive\Documentos\Marketing Proyecto\consu"; python -m streamlit run app_spotify.py
    ```
@@ -200,7 +203,7 @@ python pruebas/respaldo.py restaurar   # al terminar: deja la base como estaba y
 
 | Síntoma | Causa / solución |
 |---|---|
-| «streamlit no se reconoce como comando» | La carpeta de scripts de Python no está en el PATH: usa `python -m streamlit run app_spotify.py`, o agrega `%APPDATA%\Python\Python310\Scripts` al PATH y reabre la terminal |
+| «streamlit no se reconoce como comando» | La carpeta de scripts de Python no está en el PATH. Usa `iniciar.bat` o `python -m streamlit run app_spotify.py`. Si agregaste `%APPDATA%\Python\Python310\Scripts` al PATH, **cierra y vuelve a abrir** la terminal (o VS Code), porque las terminales ya abiertas no ven el cambio |
 | «No se pudo conectar a MySQL» | MySQL no está encendido en XAMPP, o la base no existe: corre `python "base de datos.py"` |
 | `Unknown database 'spotify_uadeo_db'` | Falta generar la base (paso 3 de la instalación) |
 | `Access denied for user 'root'` | Tu MySQL tiene contraseña: define `MYSQL_PASSWORD` |
