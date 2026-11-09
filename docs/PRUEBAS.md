@@ -2,27 +2,33 @@
 
 **Fecha:** 9 de noviembre de 2026 · **Entorno:** Windows 11, Python 3.10.3, MariaDB 10.4.32 (XAMPP), Streamlit 1.64.0, pandas 2.3.3
 
-**Resultado final: ✅ todo en verde.** El generador corre sin errores, las 39 reglas de integridad dan 0, pasan las 58 pruebas de la app (más el recorrido de los 45 usuarios) y las 26 pruebas con base vacía, y los pop-ups se verificaron a mano en el navegador.
+**Base de datos:** todas las pruebas se corrieron sobre la **base original `spotify_uadeo_db`**. No se usó ninguna base falsa ni de prueba.
+
+**Resultado final: ✅ todo en verde.** El generador corre sin errores, las 39 reglas de integridad dan 0 y pasan las 59 pruebas de la app (58 funcionales más la verificación de restauración, además del recorrido de los 45 usuarios). Los pop-ups se verificaron a mano en el navegador y, al terminar, la base quedó **idéntica** a como estaba antes de las pruebas (`CHECKSUM TABLE` en las 19 tablas).
 
 Los errores encontrados durante estas pruebas y su corrección están en [CAMBIOS.md](CAMBIOS.md).
 
 ## Cómo repetir las pruebas
 
-> Las pruebas de la app **modifican datos**. `pruebas/test_app.py` se niega a correr si `SPOTIFY_DB` no está definida o si es `spotify_uadeo_db`.
-
-```powershell
-$env:SPOTIFY_DB = "spotify_prueba"
-python "base de datos.py"            # genera la base de prueba
-python pruebas/auditoria_datos.py    # apartado 2
+```bash
+python "base de datos.py"            # apartado 1: genera la base original
+python pruebas/auditoria_datos.py    # apartado 2: solo lectura
 python pruebas/test_app.py           # apartados 3 a 7
 ```
 
-Para probar con una base **vacía** (solo tablas), crea las tablas sin datos y vuelve a correr `test_app.py`:
+**¿Cómo se prueba sobre la original sin ensuciarla?** `test_app.py` da de alta, modifica y borra registros, así que antes de empezar toma una **foto** de la base (`pruebas/respaldo.py`) y al final, pase lo que pase, la **restaura**:
 
-```powershell
-$env:SPOTIFY_DB = "spotify_vacia"
-python -c "import importlib.util, mysql.connector; s=importlib.util.spec_from_file_location('bd','base de datos.py'); bd=importlib.util.module_from_spec(s); s.loader.exec_module(bd); cx=bd.crear_conexion_servidor(); c=cx.cursor(); c.execute('CREATE DATABASE IF NOT EXISTS spotify_vacia'); c.execute('USE spotify_vacia'); bd.crear_tablas(c); cx.commit()"
-python pruebas/test_app.py
+1. Borra los registros nuevos (los que tienen un ID mayor al de la foto), primero los hijos y luego los padres.
+2. Regresa los valores originales de `users`, `songs`, `playlist_created` y `premium_subscribed`, y repone completa `user_recommendations`.
+3. Regresa los contadores `AUTO_INCREMENT`.
+4. Compara `CHECKSUM TABLE` de las 19 tablas contra la foto. Si alguna no coincide, la prueba falla.
+
+Para las pruebas manuales del apartado 8 se usa lo mismo desde la terminal:
+
+```bash
+python pruebas/respaldo.py foto
+# ... probar en el navegador ...
+python pruebas/respaldo.py restaurar
 ```
 
 ---
@@ -61,7 +67,7 @@ Antes de las correcciones esta auditoría encontró **5 reglas en rojo** (G1, G2
 | Prueba | Resultado |
 |---|---|
 | 🏠 Inicio, ✨ Para ti, 📡 Telemetría y 🗄️ Base de datos cargan sin excepciones ni errores | ✅ 4/4 |
-| Las mismas 4 páginas y las 22 tablas y vistas con **base vacía** | ✅ 26/26 |
+| Tablas vacías: la app conserva las columnas aunque una consulta no devuelva filas (error A1 de CAMBIOS.md) | ✅ (filtros sin resultados, buscador sin coincidencias, usuario sin historial) |
 
 ## Apartado 4 · ✨ Para ti
 
@@ -78,7 +84,7 @@ Antes de las correcciones esta auditoría encontró **5 reglas en rojo** (G1, G2
 
 | Prueba | Resultado |
 |---|---|
-| Las 8 pestañas se dibujan, también con base vacía | ✅ |
+| Las 8 pestañas se dibujan | ✅ |
 | Línea de tiempo de 5 usuarios distintos y de un usuario recién creado | ✅ |
 
 ## Apartado 6 · 🗄️ Base de datos: visor y buscador
@@ -112,16 +118,16 @@ Antes de las correcciones esta auditoría encontró **5 reglas en rojo** (G1, G2
 
 ## Apartado 8 · Pop-ups, verificados a mano en el navegador
 
-`AppTest` de Streamlit no puede presionar botones dentro de `st.dialog`, así que estos flujos se probaron en el navegador con la app apuntando a la base de prueba.
+`AppTest` de Streamlit no puede presionar botones dentro de `st.dialog`, así que estos flujos se probaron en el navegador con la app conectada a la **base original**, entre `respaldo.py foto` y `respaldo.py restaurar`. Para las bajas se creó un usuario temporal (#46, «ZZ Prueba Bajas») con reproducción, like, playlist y suscripción; así no se borró ningún dato real.
 
 | Prueba | Resultado |
 |---|---|
-| El pop-up de bienvenida aparece al abrir un usuario y «Ver todas mis recomendaciones» lo cierra | ✅ |
-| «✨ Ver pop-up» lo vuelve a abrir | ✅ |
+| El pop-up de bienvenida aparece al abrir a Dora y «Ver todas mis recomendaciones» lo cierra | ✅ |
 | «Detalles» abre el pop-up con la razón y las 4 barras de afinidad | ✅ |
-| «▶ Escuchar»: toast, reproducciones 759 → 760, `ms_played` = duración de la canción y estado `escuchada` | ✅ |
-| «❤ Me gusta» presionado **dos veces** en la misma canción: 1 solo like y estado `guardada` | ✅ |
-| Bajas → «Cancelar»: no borra nada | ✅ |
-| Bajas → «Sí, eliminar» en una suscripción: se borra y el usuario vuelve a `free` | ✅ |
-| Bajas de un usuario con todo su historial (borra sus dependencias sin errores de llave foránea) | ✅ |
-| Bajas de una canción con reproducciones y likes | ✅ |
+| «▶ Escuchar» en *Me Porto Bonito*: toast, reproducción con `ms_played` = 178,000 (duración completa) y estado `escuchada` | ✅ |
+| «❤ Me gusta» presionado **dos veces** en *Perro Negro*: 1 solo like y estado `guardada` | ✅ |
+| «🚫 No me interesa» en *AMG*: estado `descartada` | ✅ |
+| Bajas → «Sí, eliminar» en la suscripción 15: se borra y el usuario 46 pasa de `premium` a `free` | ✅ |
+| Bajas → «Cancelar» (usuario 46): no borra nada | ✅ |
+| Bajas → «Sí, eliminar» del usuario 46: se borran el usuario y su reproducción, like, playlist y suscripción, sin errores de llave foránea | ✅ |
+| `respaldo.py restaurar`: las 19 tablas quedan idénticas a la foto y la auditoría da 0 | ✅ |

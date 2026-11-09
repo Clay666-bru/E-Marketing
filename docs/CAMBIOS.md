@@ -49,4 +49,5 @@ Severidad: 🔴 truena o pierde datos · 🟠 dato o comportamiento incorrecto �
 
 - Control de versiones con Git y `.gitignore` (excluye `__pycache__`, `.pyc` y configuración local).
 - `requirements.txt`, `README.md`, `docs/` y las pruebas automáticas en `pruebas/`.
+- **Las pruebas corren sobre la base original** (`spotify_uadeo_db`) y ya no hay bases falsas. Se agregó `pruebas/respaldo.py`, que toma una foto antes de probar, la restaura al final y verifica con `CHECKSUM TABLE` que las 19 tablas quedaron idénticas. `test_app.py` lo hace automáticamente. Se borró la base vieja `spotify_uadeo_db_respaldo` (versión sin telemetría).
 - **Nota:** en `consu/__pycache__/` había archivos compilados de `consulta_*.py` y `gestion_completa.py` cuyos `.py` ya no existen. La app no los usa y no se suben al repositorio.

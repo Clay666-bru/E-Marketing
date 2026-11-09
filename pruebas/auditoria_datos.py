@@ -2,8 +2,7 @@
 Auditoría de integridad de los datos simulados (solo lectura: no modifica nada).
 
 Uso:
-    python pruebas/auditoria_datos.py                 # audita SPOTIFY_DB o spotify_uadeo_db
-    python pruebas/auditoria_datos.py spotify_prueba  # audita otra base
+    python pruebas/auditoria_datos.py      # audita la base original spotify_uadeo_db
 
 Cada regla cuenta registros que NO deberían existir; todas deben dar 0.
 Termina con código 1 si alguna regla falla.

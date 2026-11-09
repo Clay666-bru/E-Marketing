@@ -33,7 +33,8 @@ Marketing Proyecto/
 │   ├── app_spotify.py      # Panel web en Streamlit (4 páginas)
 │   └── .streamlit/config.toml
 ├── pruebas/
-│   ├── test_app.py         # Pruebas automáticas de la app (sobre una base de PRUEBA)
+│   ├── test_app.py         # Pruebas automáticas de la app sobre la base original
+│   ├── respaldo.py         # Foto y restauración de la base: las pruebas no dejan rastro
 │   └── auditoria_datos.py  # 39 reglas de integridad de los datos (solo lectura)
 └── docs/
     ├── DICCIONARIO_DATOS.md  # Todas las tablas, columnas y vistas
@@ -83,10 +84,10 @@ Por defecto el proyecto se conecta a `localhost` con el usuario `root` sin contr
 | `MYSQL_PASSWORD` | *(vacío)* | Contraseña |
 | `SPOTIFY_DB` | `spotify_uadeo_db` | Nombre de la base de datos |
 
-Ejemplo en PowerShell, para trabajar con una base de prueba:
+Ejemplo en PowerShell, si tu MySQL tiene contraseña:
 
 ```powershell
-$env:SPOTIFY_DB = "spotify_prueba"
+$env:MYSQL_PASSWORD = "tu_contraseña"
 python "base de datos.py"
 cd consu; streamlit run app_spotify.py
 ```
@@ -167,13 +168,19 @@ score = 0.45 · género + 0.25 · artista + 0.20 · similitud de audio + 0.10 ·
 
 ## Pruebas
 
-Las pruebas se corren sobre una **base de prueba**, nunca sobre la real. El plan completo y los resultados están en [docs/PRUEBAS.md](docs/PRUEBAS.md).
+Todas las pruebas corren sobre la **base original** `spotify_uadeo_db`. No se usan bases falsas. El plan completo y los resultados están en [docs/PRUEBAS.md](docs/PRUEBAS.md).
 
-```powershell
-$env:SPOTIFY_DB = "spotify_prueba"
-python "base de datos.py"            # 1) genera la base de prueba
-python pruebas/auditoria_datos.py    # 2) 39 reglas de integridad: todas deben dar 0
+```bash
+python "base de datos.py"            # 1) genera la base original
+python pruebas/auditoria_datos.py    # 2) 39 reglas de integridad: todas deben dar 0 (solo lectura)
 python pruebas/test_app.py           # 3) pruebas de la app, apartado por apartado
+```
+
+`test_app.py` da de alta, modifica y borra registros. Para no dejar rastro, **antes toma una foto** de la base con `pruebas/respaldo.py`, **al final la restaura** y comprueba con `CHECKSUM TABLE` que las 19 tablas quedaron idénticas. Para pruebas manuales en el navegador se usa lo mismo:
+
+```bash
+python pruebas/respaldo.py foto        # antes de probar a mano
+python pruebas/respaldo.py restaurar   # al terminar: deja la base como estaba y lo verifica
 ```
 
 ## Solución de problemas
