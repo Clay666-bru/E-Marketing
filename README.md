@@ -276,6 +276,8 @@ python pruebas/respaldo.py restaurar   # al terminar: deja la base como estaba y
 | Síntoma | Causa / solución |
 |---|---|
 | «streamlit no se reconoce como comando» | La carpeta de scripts de Python no está en el PATH. Usa `iniciar.bat` o `python -m streamlit run app_spotify.py`. Si agregaste `%APPDATA%\Python\Python310\Scripts` al PATH, **cierra y vuelve a abrir** la terminal (o VS Code), porque las terminales ya abiertas no ven el cambio |
+| La app corre en la terminal pero no se abre el navegador | La configuración usa `headless = true`, así que Streamlit no abre el navegador. Entra a mano a http://localhost:8501 (panel de análisis) o http://localhost:8502 (app de usuario). Los `.bat` lo abren solos a los pocos segundos |
+| «Port 8502 is already in use» | Esa app ya está abierta en otra terminal: usa esa, o ciérrala con `Ctrl + C` antes de volver a abrirla |
 | «No se pudo conectar a MySQL» | MySQL no está encendido en XAMPP, o la base no existe: corre `python "base de datos.py"` |
 | `Unknown database 'spotify_uadeo_db'` | Falta generar la base (paso 3 de la instalación) |
 | `Access denied for user 'root'` | Tu MySQL tiene contraseña: define `MYSQL_PASSWORD` |
