@@ -133,6 +133,16 @@ def aprender(conexion, user_id, top_n=10, ahora=None):
             for i, v in enumerate(_audio(s)):
                 audio_sum[i] += v * w
             audio_w += w
+    # Seguir a un artista también dice qué géneros y qué sonido te gustan: su peso se reparte
+    # entre las canciones de ese artista (sin tocar peso[], para no citarlas como "te gustó").
+    for art, w in artista_extra.items():
+        suyas = [s for s in canciones.values() if art in _artistas(s['artist'])]
+        for s in suyas:
+            genero[s['genre']] += w / len(suyas)
+            if w > 0:
+                for i, v in enumerate(_audio(s)):
+                    audio_sum[i] += v * w / len(suyas)
+                audio_w += w / len(suyas)
     genero_n, artista_n = _normalizar(genero), _normalizar(artista)
     perfil_audio = [v / audio_w for v in audio_sum] if audio_w else None
 

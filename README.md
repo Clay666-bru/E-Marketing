@@ -29,16 +29,17 @@ Marketing Proyecto/
 ├── base de datos.py        # Crea la base spotify_uadeo_db, la llena con datos simulados y corre consultas analíticas
 ├── recomendador.py         # Motor de recomendaciones según la música escuchada (lo usan el script y la app)
 ├── aprendizaje.py          # Recomendador que aprende en vivo de la telemetría (lo usa la app de usuario)
-├── iniciar.bat             # Abre el panel de análisis con doble clic (no depende del PATH)
+├── iniciar.bat             # Abre el panel de ADMINISTRADOR con doble clic (puerto 8501)
 ├── iniciar_usuario.bat     # Abre la app de usuario «Mi Spotify» (puerto 8502)
 ├── requirements.txt        # Dependencias de Python
 ├── .streamlit/config.toml  # Tema oscuro estilo Spotify
 ├── consu/
-│   ├── app_spotify.py      # Panel web en Streamlit (5 páginas)
-│   ├── app_usuario.py      # App «Mi Spotify» vista como usuario: registro, escucha y recomendaciones que aprenden
+│   ├── app_spotify.py      # Panel de ADMINISTRADOR en Streamlit (6 páginas, con inicio de sesión)
+│   ├── app_usuario.py      # App del USUARIO «Mi Spotify»: se comporta como Spotify y aprende de su telemetría
 │   └── .streamlit/config.toml
 ├── pruebas/
-│   ├── test_app.py         # Pruebas automáticas de la app sobre la base original
+│   ├── test_app.py         # Pruebas automáticas del panel de administrador sobre la base original
+│   ├── test_usuario.py     # Pruebas automáticas de la app de usuario (flujo completo + integridad)
 │   ├── respaldo.py         # Foto y restauración de la base: las pruebas no dejan rastro
 │   └── auditoria_datos.py  # 39 reglas de integridad de los datos (solo lectura)
 └── docs/
@@ -101,12 +102,21 @@ cd consu; streamlit run app_spotify.py
 
 ## La app, apartado por apartado
 
-La barra lateral tiene un menú con 5 páginas y muestra hasta qué fecha llegan los datos. Cada página tiene un recuadro **ℹ️ ¿Cómo leer esta página?** que explica sus métricas.
+`app_spotify.py` es el **panel de administrador**. Al abrirlo pide **usuario y contraseña**: por defecto `admin` / `admin`, y se cambian con las variables de entorno `ADMIN_USER` y `ADMIN_PASSWORD`. El botón **🔒 Cerrar sesión de administrador** está en la barra lateral. Los usuarios no entran aquí: usan la app **Mi Spotify** (ver más abajo).
+
+La barra lateral tiene un menú con 6 páginas y muestra hasta qué fecha llegan los datos. Cada página tiene un recuadro **ℹ️ ¿Cómo leer esta página?** que explica sus métricas.
 
 ### 🏠 Inicio — Panel general
 - **5 KPIs**: usuarios (y activos en los últimos 7 días), reproducciones (con la **tendencia semanal**: últimos 7 días contra los 7 anteriores), horas escuchadas, % Premium y CTR de recomendaciones.
 - **Reproducciones por día** (gráfica de área) y **géneros más escuchados** en horas.
 - **Top 10 canciones**: tarjetas de las 5 primeras y una tabla con reproducciones, % de skips y popularidad.
+
+### 📺 En vivo: lo que hacen ahora los usuarios
+Se actualiza sola cada 5 segundos, sin caché:
+- **6 KPIs de hoy**: registros desde la app, usuarios en línea (actividad en los últimos 5 min), reproducciones y % saltadas, CTR del modelo en vivo (grupo `L`), anuncios e ingreso, y altas Premium junto con cuántos vieron la oferta.
+- **Usuarios en línea**: plan, sesión, duración, canciones y la última que sonó.
+- **Eventos de hoy**: los 80 más recientes de `v_telemetria_unificada`, con el nombre del usuario.
+- **Qué aprendió el modelo**: eliges un usuario (primero los registrados en la app) y ves sus señales, su afinidad por género y las recomendaciones que tiene ahora.
 
 ### 📈 Marketing: análisis para la toma de decisiones
 Es la página central del proyecto de E-Marketing. Tiene 5 pestañas y todas sacan sus conclusiones automáticamente:
@@ -157,42 +167,68 @@ Hay 8 pestañas:
 
 ## App de usuario «Mi Spotify»
 
-Es una segunda app que muestra el producto **desde el lado del usuario**: te registras, eliges música y escuchas. Todo lo que haces se guarda como telemetría en la base **real** `spotify_uadeo_db` y las recomendaciones se **reentrenan al instante** con esas señales.
+El proyecto tiene **dos apps con papeles distintos**, que corren separadas:
 
-**Abrirla:** doble clic en `iniciar_usuario.bat`, o:
+| App | Quién la usa | Archivo | Puerto | Lanzador |
+|---|---|---|---|---|
+| **Mi Spotify** | El **usuario**: se registra, escucha, guarda y busca música, como en Spotify | `consu/app_usuario.py` | 8502 | `iniciar_usuario.bat` |
+| **Panel de administrador** | El **administrador**: KPIs, marketing, telemetría, gestión de la base y actividad en vivo | `consu/app_spotify.py` | 8501 | `iniciar.bat` |
+
+Todo lo que hace el usuario se guarda como telemetría en la base **real** `spotify_uadeo_db`; las recomendaciones se **reentrenan al instante** con esas señales y el administrador lo ve en la página **📺 En vivo**.
 
 ```powershell
-cd consu; python -m streamlit run app_usuario.py --server.port 8502
+python -m streamlit run consu/app_usuario.py --server.port 8502
 ```
-
-Usa el puerto **8502**, así que puede estar abierta al mismo tiempo que el panel de análisis (8501).
 
 ### Flujo
 
-1. **Crear cuenta**: nombre, correo, año de nacimiento, género, ciudad y estado. Se valida que el nombre y el correo no existan. Se inserta en `users` con `signup_source = 'app_en_vivo'` y `signup_platform = 'Web'`. También se puede **entrar con una cuenta existente** (por ejemplo `Dora Zatarain`) escribiendo su correo o nombre.
-2. **Onboarding**: eliges al menos 3 canciones (con filtro por género). Se guardan en `song_liked` (`source = 'onboarding'`) y se sigue a su artista en `artist_follows`.
-3. **La app** (5 páginas):
+1. **Regístrate gratis**: nombre, correo, año de nacimiento, género, ciudad y estado. Se valida que el nombre y el correo no existan. Se inserta en `users` con `signup_source = 'app_en_vivo'`, `signup_platform = 'Web'` y cuenta `free`. También se puede **iniciar sesión** con una cuenta existente (por ejemplo `Dora Zatarain`) escribiendo su correo o nombre.
+2. **Onboarding como Spotify**: eliges **3 o más artistas** (con filtro por género). Se guardan en `artist_follows` (`source = 'onboarding'`) y con eso arrancan tus recomendaciones.
+3. **La app**:
 
-| Página | Qué hace |
+| Parte | Qué hace |
 |---|---|
-| 🏠 Inicio | Reproductor y la fila **Hecho para ti** con 10 recomendaciones, su % de match, la razón y flechas ▲▼ que muestran cuántos lugares subió o bajó cada canción tras el último reentrenamiento. Botones **▶ Escuchar**, **❤** y **✕ No me interesa**. En el reproductor eliges **✅ Escuchar completa** o **⏭ Saltar** |
-| 🔎 Buscar | Busca por canción, artista, género o álbum. Guarda la búsqueda y en qué resultado hiciste clic (posición y tiempo hasta el clic). **➕ Seguir** sigue al artista |
-| 📚 Tu biblioteca | Tus me gusta y lo escuchado recientemente |
-| 🧠 Lo que aprendimos | Tu afinidad por género y por artista (verde = te gusta, rojo = no), los conteos de señales y una gráfica de **cómo cambió tu perfil** en la sesión |
-| 📡 Tu telemetría | Sesión, duración, canciones y CTR de tus recomendaciones; la bitácora de cada registro que escribió la sesión y tu línea de tiempo (`v_telemetria_unificada`) |
+| 🎧 Reproductor (fijo abajo) | Avanza en **tiempo real** con barra de progreso. ⏮ anterior (o reinicia si ya pasaron 3 s), ⏯ pausa, ⏭ siguiente, 🔀 aleatorio, 🔁 repetir (no / todo / una) y ♡ me gusta. Muestra de dónde viene la canción y cuál sigue. Cuando se acaba la cola, **Autoplay** sigue con tus recomendaciones |
+| 🏠 Inicio | Accesos rápidos (Tus me gusta y lo último que escuchaste), **Hecho para ti** (10 recomendaciones con % de match, razón y flechas ▲▼ de cuántos lugares subió o bajó cada una), **Tus mixes diarios** (un Daily Mix por cada género que te gusta) y **Populares en México** |
+| 🔎 Buscar | Sin texto muestra **Explorar todo** por género. Busca canciones, artistas, géneros o álbumes; guarda la búsqueda y en qué resultado hiciste clic |
+| 📚 Tu biblioteca | Tus me gusta, tus playlists y los artistas que sigues |
+| 🎶 Playlists | **➕ Crear playlist** en la barra lateral; agrega canciones desde el menú **⋯** de cualquier canción, quítalas con ✕, edita nombre y descripción, ▶ reproducir o 🔀 aleatorio |
+| 👤 Artista | Oyentes y seguidores reales de la base, **Seguir / Siguiendo**, ▶ reproducir y 📻 radio del género |
+| ⋯ Menú de canción | Ir al artista, agregar a una playlist (o crear una nueva), compartir (WhatsApp, Instagram, enlace) y ⬇ descargar (solo Premium) |
+| 🧠 Tu gusto musical | Tu afinidad por género y por artista (verde = te gusta, rojo = no), tus señales y cómo cambió tu perfil en la sesión |
+
+### Free y Premium (reglas de Spotify)
+
+| | Free | Premium |
+|---|---|---|
+| Anuncios | Uno cada **3 canciones**, de unos 15 s; no se puede saltar. «Ver más» guarda un clic | Sin anuncios |
+| Saltos | Máximo **6 por hora**. Al llegar al límite aparece la oferta Premium | Ilimitados |
+| Descargas | Aparece la oferta Premium | ⬇ Descarga para escuchar sin conexión |
+
+La oferta Premium aparece al llegar al límite de saltos, con **Sin anuncios** durante un anuncio, al intentar descargar o con **💎 Hazte Premium**. Ofrece los 4 planes con los mismos precios de la simulación. La primera vez es **1 mes gratis** (`status = 'prueba'`); si ya usaste la prueba, es una compra (`status = 'activa'`). No se piden datos de pago reales. En **Administrar suscripción** se puede cancelar y volver a Free.
+
+### Velocidad de reproducción (demo)
+
+Las canciones duran unos 3 minutos. Para la demo, la barra lateral tiene **⏩ Velocidad: x1, x5, x10 (por defecto) o x30**. En la base se guarda el tiempo **de canción** (`ms_played`), como si se hubiera escuchado en tiempo real. Los anuncios se aceleran como máximo x3, para que siempre duren al menos 5 segundos.
 
 ### Qué telemetría escribe
 
 | Acción | Tablas |
 |---|---|
 | Abrir la app | `app_sessions` (web_player · Web), `app_performance_events` (`app_startup`), `ui_events` |
-| Cada reentrenamiento | `recommendation_events`: 10 impresiones (`surface = 'Home - Hecho para ti'`, `model_version = 'live-v1'`, `ab_test_group = 'L'`) y `user_recommendations` (`algorithm = 'telemetry_live_learning'`) |
-| ▶ Escuchar | `recommendation_events.clicked`, `ui_events` |
-| ✅ Completa / ⏭ Saltar | `song_played` (con `session_id`, `ms_played`, `reason_end` `trackdone`/`fwdbtn`, `skipped`), `app_sessions.tracks_played`, `recommendation_events.played/completed/skipped` |
-| ❤ Me gusta | `song_liked` (sin duplicar), `recommendation_events.saved` (solo si ya se reprodujo) |
+| Ver «Hecho para ti» con una lista nueva | `recommendation_events`: 10 impresiones (`surface = 'Home - Hecho para ti'`, `model_version = 'live-v1'`, `ab_test_group = 'L'`) |
+| Cada reentrenamiento | `user_recommendations` (`algorithm = 'telemetry_live_learning'`) |
+| ▶ Reproducir | `recommendation_events.clicked` si venía de una recomendación, `ui_events` |
+| Fin de una canción | `song_played` con `session_id`, `ms_played`, `source`, `shuffle` y `reason_end`: `trackdone` (terminó), `fwdbtn` (⏭), `backbtn` (⏮), `clickrow` (pusiste otra), `endplay` (cerraste sesión). Es **skip** solo si duró menos de 30 s y la cambiaste con ⏭ o con otra canción. También `app_sessions.tracks_played` y `recommendation_events.played/completed/skipped` |
+| Pausa, aleatorio, repetir, siguiente, anterior | `ui_events` (`btn_pause`, `btn_play`, `btn_shuffle`, `btn_repeat`, `btn_next`, `btn_previous`) |
+| ♡ / 💚 Me gusta | `song_liked` (se agrega o se quita), `recommendation_events.saved` (solo si ya se reprodujo) |
 | ✕ No me interesa | `recommendation_events.dismissed` |
-| Buscar / clic en resultado | `search_events` (`clicked_song_id`, `click_position`, `time_to_click_ms`) |
-| ➕ Seguir | `artist_follows` (sin duplicar) |
+| Buscar / clic en resultado | `search_events` (`search_type`, `results_count`, `clicked_song_id`, `click_position`, `time_to_click_ms`) |
+| Seguir / dejar de seguir | `artist_follows` |
+| Playlists | `playlist_created`, `playlist_tracks` (sin duplicar) |
+| Compartir / descargar | `share_events`, `download_events` |
+| Anuncios | `ad_events`: `impression` ($0.045), `click` ($0.35), `complete` |
+| Premium | `subscription_events` (`paywall_view` con su motivo, `trial_started`, `purchase`, `cancelled`), `premium_subscribed`, `users.account_type` |
 
 La sesión se va extendiendo (`ended_at`, `duration_sec`) con cada evento, así todo queda dentro de ella. El grupo `L` (en vivo) queda **fuera de la prueba A/B** de la página Marketing, que solo compara A contra B.
 
@@ -202,12 +238,12 @@ Cada evento se vuelve una **señal con signo** para la canción, su género y su
 
 | Señal | Peso |
 |---|---|
-| Escuchar completa | +1 (proporcional a lo escuchado) |
-| Saltar | −0.6 |
+| Escuchar | +1 si es completa (proporcional a lo escuchado) |
+| Saltar antes de 30 s | −0.6 |
 | Me gusta | +3 |
 | No me interesa | −2.5 |
 | Clic en un resultado de búsqueda | +0.5 |
-| Seguir al artista | +2 al artista |
+| Seguir al artista | +2 al artista, repartido también entre el género y el sonido de sus canciones |
 
 Las señales se multiplican por un factor de **recencia** (vida media de 14 días). Con ellas se calcula la afinidad por género y por artista entre −1 y 1 y un perfil de audio de lo que sí te gustó, y se puntúa con la misma fórmula del proyecto:
 
@@ -219,9 +255,10 @@ No se recomiendan canciones con like, descartadas, con señal neta negativa ni e
 
 ### Ten en cuenta
 
-- Los datos simulados terminan el 4 de noviembre de 2026; la app escribe con la **fecha y hora reales**. Por eso, después de usarla, `auditoria_datos.py` marca las reglas «… después del corte» (las demás deben seguir en 0), y en el panel de análisis la «fecha de hoy» pasa a ser la de tu última escucha.
+- Los datos simulados terminan el 4 de noviembre de 2026; la app escribe con la **fecha y hora reales**. Por eso, después de usarla, `auditoria_datos.py` marca las reglas «… después del corte» (las demás deben seguir en 0), y en el panel la «fecha de hoy» pasa a ser la de tu última escucha.
 - Para probar sin dejar rastro: `python pruebas/respaldo.py foto` antes y `python pruebas/respaldo.py restaurar` al terminar.
-- Al recargar el navegador se cierra la sesión de Streamlit; vuelve a entrar con «Ya tengo cuenta».
+- Al recargar el navegador se cierra la sesión de Streamlit; vuelve a entrar con «Iniciar sesión».
+- La cuenta no tiene contraseña porque la tabla `users` no la guarda; se entra con el correo o el nombre.
 
 ## Generador de la base de datos
 
@@ -261,10 +298,13 @@ Todas las pruebas corren sobre la **base original** `spotify_uadeo_db`. No se us
 ```bash
 python "base de datos.py"            # 1) genera la base original
 python pruebas/auditoria_datos.py    # 2) 39 reglas de integridad: todas deben dar 0 (solo lectura)
-python pruebas/test_app.py           # 3) pruebas de la app, apartado por apartado
+python pruebas/test_app.py           # 3) pruebas del panel de administrador, apartado por apartado
+python pruebas/test_usuario.py       # 4) pruebas de la app de usuario «Mi Spotify»
 ```
 
-`test_app.py` da de alta, modifica y borra registros. Para no dejar rastro, **antes toma una foto** de la base con `pruebas/respaldo.py`, **al final la restaura** y comprueba con `CHECKSUM TABLE` que las 19 tablas quedaron idénticas. Para pruebas manuales en el navegador se usa lo mismo:
+`test_usuario.py` recorre el flujo de un usuario nuevo: registro, onboarding, reproducción completa, skip, anuncio cada 3 canciones, límite de 6 saltos con oferta Premium, me gusta, no me interesa, búsqueda, playlist, artista y 7 reglas de integridad.
+
+`test_app.py` y `test_usuario.py` dan de alta, modifican y borran registros. Para no dejar rastro, **antes toma una foto** de la base con `pruebas/respaldo.py`, **al final la restaura** y comprueba con `CHECKSUM TABLE` que las 19 tablas quedaron idénticas. Para pruebas manuales en el navegador se usa lo mismo:
 
 ```bash
 python pruebas/respaldo.py foto        # antes de probar a mano
@@ -276,7 +316,7 @@ python pruebas/respaldo.py restaurar   # al terminar: deja la base como estaba y
 | Síntoma | Causa / solución |
 |---|---|
 | «streamlit no se reconoce como comando» | La carpeta de scripts de Python no está en el PATH. Usa `iniciar.bat` o `python -m streamlit run app_spotify.py`. Si agregaste `%APPDATA%\Python\Python310\Scripts` al PATH, **cierra y vuelve a abrir** la terminal (o VS Code), porque las terminales ya abiertas no ven el cambio |
-| La app corre en la terminal pero no se abre el navegador | La configuración usa `headless = true`, así que Streamlit no abre el navegador. Entra a mano a http://localhost:8501 (panel de análisis) o http://localhost:8502 (app de usuario). Los `.bat` lo abren solos a los pocos segundos |
+| La app corre en la terminal pero no se abre el navegador | La configuración usa `headless = true`, así que Streamlit no abre el navegador. Entra a mano a http://localhost:8501 (panel de administrador) o http://localhost:8502 (app de usuario). Los `.bat` lo abren solos a los pocos segundos |
 | «Port 8502 is already in use» | Esa app ya está abierta en otra terminal: usa esa, o ciérrala con `Ctrl + C` antes de volver a abrirla |
 | «No se pudo conectar a MySQL» | MySQL no está encendido en XAMPP, o la base no existe: corre `python "base de datos.py"` |
 | `Unknown database 'spotify_uadeo_db'` | Falta generar la base (paso 3 de la instalación) |

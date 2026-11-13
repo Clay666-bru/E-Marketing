@@ -13,6 +13,7 @@ import streamlit as st
 # El motor de recomendaciones vive en la carpeta de arriba (recomendador.py)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import recomendador  # noqa: E402
+import aprendizaje  # noqa: E402  (motor en vivo de la app de usuario)
 
 
 # Conexión a MySQL/MariaDB (XAMPP). Se puede cambiar con las mismas variables de entorno
@@ -30,7 +31,7 @@ def conectar_db():
     return mysql.connector.connect(**MYSQL_CONFIG, database=DB_NAME)
 
 
-st.set_page_config(page_title="Spotify Analytics · UAdeO", page_icon="🎧", layout="wide",
+st.set_page_config(page_title="Admin · Spotify Analytics", page_icon="🛡️", layout="wide",
                    initial_sidebar_state="expanded")
 
 # =====================================================================
@@ -220,16 +221,45 @@ except Exception as e:
 
 
 # =====================================================================
+# ACCESO DE ADMINISTRADOR
+# Esta app es el lado del ADMINISTRADOR (análisis, telemetría y gestión de la base).
+# Los usuarios usan app_usuario.py. Contraseña: variable ADMIN_PASSWORD (por defecto "admin").
+# =====================================================================
+ADMIN_USUARIO = os.environ.get("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin")
+
+if not st.session_state.get("admin_ok"):
+    st.markdown(f"""<div style="text-align:center;margin:40px 0 18px">
+        <div style="width:72px;height:72px;border-radius:50%;background:{VERDE};display:inline-flex;align-items:center;
+        justify-content:center;font-size:38px">🛡️</div>
+        <h1 style="margin:10px 0 0">Panel de administrador</h1>
+        <div style="color:#b3b3b3">Spotify Analytics · E-Marketing UAdeO</div></div>""", unsafe_allow_html=True)
+    _, centro, _ = st.columns([1, 1.2, 1])
+    with centro:
+        with st.form("login_admin"):
+            usuario_admin = st.text_input("Usuario")
+            clave_admin = st.text_input("Contraseña", type="password")
+            entrar_admin = st.form_submit_button("Entrar", type="primary", width="stretch")
+        if entrar_admin:
+            if usuario_admin.strip() == ADMIN_USUARIO and clave_admin == ADMIN_PASSWORD:
+                st.session_state.admin_ok = True
+                st.rerun()
+            st.error("Usuario o contraseña incorrectos.")
+        st.caption("¿Eres usuario? Abre la app «Mi Spotify» en http://localhost:8502")
+    st.stop()
+
+
+# =====================================================================
 # BARRA LATERAL
 # =====================================================================
 with st.sidebar:
     st.markdown(f"""<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
         <div style="width:40px;height:40px;border-radius:50%;background:{VERDE};display:flex;align-items:center;
-        justify-content:center;font-size:22px">🎧</div>
-        <div><div style="color:#fff;font-weight:900;font-size:1.2rem">Spotify Analytics</div>
-        <div style="font-size:.75rem">E-Marketing · UAdeO</div></div></div>""", unsafe_allow_html=True)
-    pagina = st.radio("Menú", ["🏠 Inicio", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"],
-                      label_visibility="collapsed")
+        justify-content:center;font-size:22px">🛡️</div>
+        <div><div style="color:#fff;font-weight:900;font-size:1.2rem">Panel de administrador</div>
+        <div style="font-size:.75rem">Spotify Analytics · E-Marketing UAdeO</div></div></div>""", unsafe_allow_html=True)
+    pagina = st.radio("Menú", ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "✨ Para ti", "📡 Telemetría",
+                               "🗄️ Base de datos"], label_visibility="collapsed")
     try:
         _ult = consulta("SELECT MAX(played_at) AS ultima FROM song_played")
         _ult = _ult.ultima.iloc[0] if not _ult.empty else None
@@ -237,6 +267,9 @@ with st.sidebar:
     except Exception:
         _txt = "sin datos"
     st.caption(f"🗄️ Base `{DB_NAME}`  \n📅 Datos hasta: **{_txt}**")
+    if st.button("🔒 Cerrar sesión de administrador", width="stretch"):
+        st.session_state.admin_ok = False
+        st.rerun()
     st.markdown("---")
 
 
@@ -372,7 +405,7 @@ def popup_confirmar_borrado(tabla, campo_pk, ids):
 # =====================================================================
 def pagina_inicio():
     st.markdown(f"""<div class="hero"><div class="logo">🎧</div><div><div class="sub">PANEL GENERAL</div>
-        <h1>Spotify Analytics</h1><div class="sub">Usuarios, reproducciones, recomendaciones y telemetría
+        <h1>Panel de administrador</h1><div class="sub">Usuarios, reproducciones, recomendaciones y telemetría
         · base <code>{esc(DB_NAME)}</code></div></div></div>""", unsafe_allow_html=True)
     guia("""
 - **Usuarios activos**: escucharon algo en los 7 días previos a la última reproducción registrada.
@@ -1247,10 +1280,127 @@ def pagina_base_datos():
 
 
 # =====================================================================
+# PÁGINA: EN VIVO (lo que hacen los usuarios en la app «Mi Spotify»)
+# =====================================================================
+def consulta_vivo(sql, params=None):
+    """Igual que consulta() pero SIN caché: esta página muestra datos al segundo."""
+    cx = conectar_db()
+    cur = cx.cursor(dictionary=True)
+    cur.execute(sql, params or ())
+    filas, columnas = cur.fetchall(), list(cur.column_names)
+    cur.close(); cx.close()
+    df = pd.DataFrame(filas, columns=columnas)
+    for col in df.columns:
+        if df[col].map(lambda x: isinstance(x, Decimal)).any():
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    return df
+
+
+def pagina_en_vivo():
+    st.markdown("""<div class="hero"><div class="logo">📺</div><div><div class="sub">ACTIVIDAD EN VIVO</div>
+        <h1>En vivo</h1><div class="sub">Lo que hacen ahora los usuarios en la app «Mi Spotify» (puerto 8502)
+        · se actualiza cada 5 segundos</div></div></div>""", unsafe_allow_html=True)
+    guia("""
+- Todo sale de la base real con la **fecha y hora de hoy**: registros, sesiones, reproducciones, saltos, anuncios y Premium.
+- **En línea**: sesiones de la app web con actividad en los últimos 5 minutos.
+- **CTR del modelo en vivo**: clics sobre las recomendaciones del grupo `L` (motor `aprendizaje.py`), que queda fuera de la prueba A/B.
+- Abajo puedes elegir un usuario y ver **qué aprendió el modelo** de él y qué le está recomendando.""")
+
+    @st.fragment(run_every=5)
+    def tablero():
+        ahora_ = datetime.now().replace(microsecond=0)
+        hoy = ahora_.replace(hour=0, minute=0, second=0)
+        hace5 = ahora_ - timedelta(minutes=5)
+        k = consulta_vivo("""
+            SELECT (SELECT COUNT(*) FROM users WHERE signup_source='app_en_vivo') AS registrados,
+                   (SELECT COUNT(*) FROM users WHERE signup_source='app_en_vivo' AND signup_date >= %s) AS registrados_hoy,
+                   (SELECT COUNT(DISTINCT user_id) FROM app_sessions WHERE os='Web' AND ended_at >= %s) AS en_linea,
+                   (SELECT COUNT(*) FROM song_played WHERE played_at >= %s) AS plays_hoy,
+                   (SELECT ROUND(100*AVG(skipped),1) FROM song_played WHERE played_at >= %s) AS skip_hoy,
+                   (SELECT COUNT(*) FROM recommendation_events WHERE ab_test_group='L') AS imp_l,
+                   (SELECT IFNULL(SUM(clicked),0) FROM recommendation_events WHERE ab_test_group='L') AS clic_l,
+                   (SELECT COUNT(*) FROM ad_events WHERE event_type='impression' AND event_at >= %s) AS ads_hoy,
+                   (SELECT IFNULL(SUM(revenue_mxn),0) FROM ad_events WHERE event_at >= %s) AS ingreso_ads,
+                   (SELECT COUNT(*) FROM subscription_events WHERE event_type='paywall_view' AND event_at >= %s) AS paywall_hoy,
+                   (SELECT COUNT(*) FROM subscription_events WHERE event_type IN ('trial_started','purchase')
+                       AND event_at >= %s) AS premium_hoy
+        """, (hoy, hace5, hoy, hoy, hoy, hoy, hoy, hoy)).iloc[0]
+        c = st.columns(6)
+        kpi(c[0], "Registros app", f"{int(k.registrados)}", "📝", f"+{int(k.registrados_hoy)} hoy")
+        kpi(c[1], "En línea", f"{int(k.en_linea)}", "🟢", "últimos 5 min")
+        kpi(c[2], "Plays hoy", f"{int(k.plays_hoy)}", "▶️",
+            f"{0 if pd.isna(k.skip_hoy) else k.skip_hoy}% saltadas")
+        kpi(c[3], "CTR en vivo", f"{pct(k.clic_l, k.imp_l):.1f}%", "🧠", f"{int(k.imp_l)} impresiones")
+        kpi(c[4], "Anuncios hoy", f"{int(k.ads_hoy)}", "📢", f"${float(k.ingreso_ads):.2f} MXN")
+        kpi(c[5], "Premium hoy", f"{int(k.premium_hoy)}", "💎", f"{int(k.paywall_hoy)} vieron la oferta")
+
+        st.markdown("#### 🟢 Usuarios en línea")
+        enl = consulta_vivo("""
+            SELECT u.username AS usuario, u.account_type AS plan, s.session_id AS sesion, s.started_at AS inicio,
+                   s.duration_sec AS segundos, s.tracks_played AS canciones,
+                   (SELECT CONCAT(so.title, ' · ', so.artist) FROM song_played p JOIN songs so USING(song_id)
+                     WHERE p.session_id = s.session_id ORDER BY p.play_id DESC LIMIT 1) AS ultima_cancion
+              FROM app_sessions s JOIN users u USING(user_id)
+             WHERE s.os='Web' AND s.ended_at >= %s ORDER BY s.ended_at DESC""", (hace5,))
+        if enl.empty:
+            st.info("Nadie está usando «Mi Spotify» en este momento. Ábrela en http://localhost:8502.")
+        else:
+            st.dataframe(enl, hide_index=True, width="stretch")
+
+        st.markdown("#### 📜 Eventos de hoy (más recientes primero)")
+        ev = consulta_vivo("""
+            SELECT t.event_at AS hora, u.username AS usuario, t.event_type AS evento, t.detalle
+              FROM v_telemetria_unificada t JOIN users u USING(user_id)
+             WHERE t.event_at >= %s ORDER BY t.event_at DESC LIMIT 80""", (hoy,))
+        if ev.empty:
+            st.caption("Todavía no hay eventos hoy.")
+        else:
+            st.dataframe(ev, hide_index=True, width="stretch", height=320)
+
+    tablero()
+
+    st.markdown("#### 🧠 Qué aprendió el modelo de un usuario")
+    usuarios = consulta_vivo("""
+        SELECT u.user_id, u.username, u.signup_source,
+               (SELECT MAX(played_at) FROM song_played p WHERE p.user_id=u.user_id) AS ultima
+          FROM users u ORDER BY (u.signup_source='app_en_vivo') DESC, ultima DESC""")
+    if usuarios.empty:
+        return
+    etiquetas = {int(r.user_id): f"{r.username} (#{r.user_id})" + (" · app en vivo" if r.signup_source == "app_en_vivo" else "")
+                 for r in usuarios.itertuples()}
+    uid = st.selectbox("Usuario", list(etiquetas), format_func=etiquetas.get)
+    cx = conectar_db()
+    try:
+        res = aprendizaje.aprender(cx, int(uid), top_n=10)
+    finally:
+        cx.close()
+    st.caption(" · ".join(f"{k.replace('_', ' ')}: **{v}**" for k, v in res['senales'].items())
+               or "Sin señales: arranque en frío (recomendaciones por popularidad).")
+    c1, c2 = st.columns(2)
+    with c1:
+        if res['generos']:
+            df = pd.DataFrame(list(res['generos'].items()), columns=['genero', 'afinidad'])
+            st.altair_chart(_alt_config(alt.Chart(df).mark_bar(cornerRadius=4).encode(
+                x=alt.X('afinidad:Q', scale=alt.Scale(domain=[-1, 1]), title="afinidad (−1 no le gusta · 1 le gusta)"),
+                y=alt.Y('genero:N', sort='-x', title=None),
+                color=alt.condition(alt.datum.afinidad >= 0, alt.value(VERDE), alt.value("#e05555")),
+                tooltip=['genero', alt.Tooltip('afinidad:Q', format='.2f')]).properties(height=300)), width="stretch")
+    with c2:
+        recs = consulta_vivo("""
+            SELECT r.rank_position AS pos, s.title AS cancion, s.artist AS artista, s.genre AS genero,
+                   r.score, r.reason AS razon, r.algorithm AS algoritmo
+              FROM user_recommendations r JOIN songs s USING(song_id)
+             WHERE r.user_id=%s ORDER BY r.rank_position""", (int(uid),))
+        st.dataframe(recs, hide_index=True, width="stretch", height=320)
+
+
+# =====================================================================
 # ENRUTADOR
 # =====================================================================
 if pagina == "🏠 Inicio":
     pagina_inicio()
+elif pagina == "📺 En vivo":
+    pagina_en_vivo()
 elif pagina == "📈 Marketing":
     pagina_marketing()
 elif pagina == "✨ Para ti":

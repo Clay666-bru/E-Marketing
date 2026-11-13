@@ -1,6 +1,6 @@
 @echo off
 REM ==============================================================
-REM  Spotify Analytics (panel de analisis) - E-Marketing UAdeO
+REM  Panel de ADMINISTRADOR (Spotify Analytics) - E-Marketing UAdeO
 REM  Abre la app con doble clic o desde cualquier terminal:
 REM      iniciar.bat
 REM  No depende de que "streamlit" este en el PATH.
@@ -24,7 +24,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo  Abriendo Spotify Analytics (panel de analisis) en http://localhost:8501
+echo  Abriendo Panel de ADMINISTRADOR (Spotify Analytics) en http://localhost:8501
 echo  Si el navegador no se abre solo, entra a esa direccion.
 echo  Para cerrarla presiona Ctrl + C en esta ventana.
 echo.

@@ -44,7 +44,11 @@ def check(at, label, espera_error=None):
     print(f"[{'OK' if ok else 'FAIL'}] {label}" + ("" if ok else f" -> {errs}"))
 
 
-def nueva(): return AppTest.from_file(APP, default_timeout=90).run()
+def nueva():
+    """La app es el panel de ADMINISTRADOR: las pruebas entran ya con la sesión de administrador."""
+    at = AppTest.from_file(APP, default_timeout=90)
+    at.session_state["admin_ok"] = True
+    return at.run()
 
 
 def pagina(p):
@@ -69,8 +73,18 @@ def fill(at, valores):
 
 
 def pruebas():
+    print("== Apartado 0: acceso de administrador")
+    at = AppTest.from_file(APP, default_timeout=90).run()
+    ok = not at.sidebar.radio and len(at.text_input) == 2
+    at.text_input[0].set_value("admin"); at.text_input[1].set_value("incorrecta"); at.button[0].click().run()
+    ok = ok and any("incorrectos" in str(e.value) for e in at.error) and not at.sidebar.radio
+    at.text_input[1].set_value(os.environ.get("ADMIN_PASSWORD", "admin")); at.button[0].click().run()
+    ok = ok and bool(at.sidebar.radio) and not at.exception
+    print(f"[{'OK' if ok else 'FAIL'}] Pide usuario y contraseña, rechaza la incorrecta y entra con la correcta")
+    if not ok: FALLAS.append("acceso de administrador")
+
     print("== Apartado 1: páginas")
-    for p in ["🏠 Inicio", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"]:
+    for p in ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"]:
         check(pagina(p), f"Página {p}")
     guias = [len(pagina(p).expander) for p in ["🏠 Inicio", "📈 Marketing", "📡 Telemetría", "🗄️ Base de datos"]]
     ok = all(n >= 1 for n in guias)
