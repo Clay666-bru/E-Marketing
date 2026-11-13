@@ -972,7 +972,8 @@ def pagina_marketing():
         ab = consulta("""SELECT ab_test_group AS grupo, GROUP_CONCAT(DISTINCT model_version ORDER BY model_version SEPARATOR ', ') AS modelos,
                                 COUNT(*) AS impresiones, SUM(clicked) AS clics, SUM(played) AS reproducidas,
                                 SUM(saved) AS guardadas
-                           FROM recommendation_events GROUP BY ab_test_group ORDER BY ab_test_group""")
+                           FROM recommendation_events WHERE ab_test_group IN ('A', 'B')
+                          GROUP BY ab_test_group ORDER BY ab_test_group""")
         if set(ab.grupo) != {"A", "B"}:
             st.info("Se necesitan impresiones de los grupos A y B para la prueba.")
         else:
