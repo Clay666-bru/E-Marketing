@@ -74,6 +74,9 @@ try:
     check(q("SELECT COUNT(*) FROM user_recommendations WHERE user_id=%s", (uid,))[0][0] == 10, "10 recomendaciones")
     check(q("SELECT COUNT(*) FROM recommendation_events WHERE user_id=%s AND ab_test_group='L'", (uid,))[0][0] == 10,
           "10 impresiones registradas al ver el inicio")
+    textos = " ".join(str(m.value) for m in at.markdown) + " ".join(str(c.value) for c in at.caption)
+    check("match" not in textos.lower() and DB not in textos,
+          "El usuario no ve datos internos (% de match ni el nombre de la base)")
 
     # ---- Reproducir una recomendación y dejarla terminar ----
     boton(at, "▶ Escuchar")
@@ -159,10 +162,10 @@ try:
     boton(at, "✓ Siguiendo")
     check(q("SELECT COUNT(*) FROM artist_follows WHERE user_id=%s AND artist=%s", (uid, a))[0][0] == 0, "Dejar de seguir")
 
-    # ---- Tu gusto musical ----
+    # ---- Tu perfil ----
     at.session_state.detalle = None
-    at.sidebar.radio[0].set_value("🧠 Tu gusto musical").run()
-    sin_errores(at, "Tu gusto musical")
+    at.sidebar.radio[0].set_value("👤 Tu perfil").run()
+    sin_errores(at, "Tu perfil")
 
     # ---- Integridad: las reglas de la auditoría que no dependen de la fecha ----
     reglas = {

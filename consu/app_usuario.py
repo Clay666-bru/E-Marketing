@@ -21,9 +21,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 
-import altair as alt
 import mysql.connector
-import pandas as pd
 import streamlit as st
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -202,7 +200,7 @@ def portada(clave, genero=None, extra="", redonda=False, icono=None):
 # ESTADO
 # =====================================================================
 for k, v in {'uid': None, 'sid': None, 'usuario': None, 'paso': 'entrar', 'recs': [], 'perfil': None,
-             'recs_version': 0, 'impresiones': {}, 'impresiones_version': -1, 'evolucion': [],
+             'recs_version': 0, 'impresiones': {}, 'impresiones_version': -1,
              'cola': [], 'pos': 0, 'sonando': None, 'anuncio': None, 'desde_anuncio': 0,
              'shuffle': False, 'repeat': 'off', 'vel_demo': 10, 'paywall': None, 'detalle': None,
              'busqueda': None, 'aviso': None, 'premium_abierto': None}.items():
@@ -212,8 +210,10 @@ S = st.session_state
 try:
     conectar().close()
 except Exception as e:
-    st.error(f"No se pudo conectar a MySQL (base `{DB_NAME}`). Enciende MySQL en XAMPP y, si la base no existe, "
-             f"corre `python \"base de datos.py\"`.\n\n{e}")
+    st.error("😕 No pudimos conectarnos al servicio. Intenta de nuevo en unos minutos.")
+    with st.expander("Detalle técnico"):
+        st.caption(f"MySQL / base `{DB_NAME}`: enciende MySQL en XAMPP y, si la base no existe, "
+                   f"corre `python \"base de datos.py\"`. {e}")
     st.stop()
 
 
@@ -280,17 +280,14 @@ def cerrar_sesion():
         del S[k]
 
 
-def refrescar_recs(motivo):
-    """Reaprende con toda la telemetría del usuario y guarda sus recomendaciones."""
+def refrescar_recs(motivo=None):
+    """Reaprende con toda la telemetría del usuario y guarda sus recomendaciones.
+    (motivo solo documenta qué lo disparó; el administrador ve el resultado en «Recomendaciones»)."""
     cx = conectar()
     res = aprendizaje.guardar(cx, S.uid, top_n=10, ahora=ahora())
     cx.close()
-    antes = {r['song_id']: i for i, r in enumerate(S.recs)}
-    for i, r in enumerate(res['recs']):
-        r['movimiento'] = None if r['song_id'] not in antes else antes[r['song_id']] - i
     S.recs, S.perfil = res['recs'], res
     S.recs_version += 1
-    S.evolucion.append({'paso': len(S.evolucion), 'motivo': motivo, **res['generos']})
 
 
 def registrar_impresiones():
@@ -757,8 +754,7 @@ def pantalla_entrar():
                         evento_ui("onboarding", "screen_view", "pick_artists")
                         S.paso = 'onboarding'
                     st.rerun()
-            demo = leer("SELECT username FROM users ORDER BY user_id LIMIT 3")
-            st.caption("Cuentas de ejemplo: " + ", ".join(f"`{d['username']}`" for d in demo))
+            st.caption("Entra con el correo o el nombre con el que te registraste.")
 
 
 # =====================================================================
@@ -833,9 +829,8 @@ def pagina_inicio(likes):
 
     # Hecho para ti (lo que aprendió el modelo)
     registrar_impresiones()
-    ultimo = S.evolucion[-1]['motivo'] if S.evolucion else ""
     st.markdown('<div class="seccion">Hecho para ti</div>', unsafe_allow_html=True)
-    st.caption(f"🧠 Se reentrena con todo lo que haces · último aprendizaje: **{esc(ultimo)}**")
+    st.caption("Según lo que escuchas, guardas y saltas. Se actualiza con cada canción.")
     recs = S.recs
     for fila_i in range(0, len(recs), 5):
         cols = st.columns(5)
@@ -843,15 +838,11 @@ def pagina_inicio(likes):
             c = cat.get(r['song_id'])
             if not c:
                 continue
-            m = r.get('movimiento')
-            badge = ('<span class="mov" style="color:#1ed760">NUEVA</span>' if m is None and len(S.evolucion) > 1
-                     else f'<span class="mov" style="color:#1ed760">▲{m}</span>' if m and m > 0
-                     else f'<span class="mov" style="color:#ff6b6b">▼{-m}</span>' if m and m < 0 else "")
             ev = S.impresiones.get(r['song_id'])
             with col:
-                st.markdown(f"""<div class="card">{portada(c['song_id'], c['genre'], badge)}
+                st.markdown(f"""<div class="card">{portada(c['song_id'], c['genre'])}
                     <div class="t">{esc(c['title'])}</div><div class="a">{esc(c['artist'])}</div>
-                    <div class="s">{r['score']*100:.0f}% match</div><div class="r">{esc(r['reason'])}</div></div>""",
+                    <div class="r">{esc(r['reason'])}</div></div>""",
                             unsafe_allow_html=True)
                 if st.button("▶ Escuchar", key=f"rec_p_{i}", type="primary", width="stretch"):
                     # como en Spotify: al dar play a una recomendación, la cola es el resto de la fila
@@ -1071,58 +1062,70 @@ def vista_artista(a, likes):
     lista(ids, 'artist', a, "va", likes)
 
 
-def pagina_gusto():
-    st.markdown('<div class="hola">🧠 Tu gusto musical</div>'
-                '<div class="sub">Así te conoce el recomendador ahora mismo, calculado con todo lo que haces en la app.</div>',
-                unsafe_allow_html=True)
-    p = S.perfil
-    if not p:
-        st.info("Aún no hay datos.")
-        return
-    s = p['senales']
-    cols = st.columns(6)
-    for col, (lbl, k, ico) in zip(cols, [("Reproducciones", 'reproducciones', "▶️"), ("Saltos", 'skips', "⏭"),
-                                         ("Me gusta", 'me_gusta', "💚"), ("Descartadas", 'descartadas', "✕"),
-                                         ("Clics en búsqueda", 'busquedas', "🔎"),
-                                         ("Artistas seguidos", 'artistas_seguidos', "➕")]):
-        col.metric(f"{ico} {lbl}", s.get(k, 0))
+def pagina_perfil(likes):
+    """Tu perfil, como en Spotify: lo que más escuchas. Sin datos internos del modelo (eso lo ve el administrador)."""
+    u = S.usuario
+    cat = catalogo()
+    seguidos = mis_follows()
+    pls = mis_playlists()
+    plan = '<span class="chip oro">PREMIUM</span>' if es_premium() else '<span class="chip">FREE</span>'
+    inicial = (u['username'][:1] or "?").upper()
+    st.markdown(f"""<div class="cab" style="background:linear-gradient(180deg,rgba(255,255,255,.08),transparent)">
+        <div class="cv" style="background:{VERDE};border-radius:50%;color:#000;font-weight:900">{esc(inicial)}</div>
+        <div><div class="tipo">Perfil {plan}</div><div class="nombre">{esc(u['username'])}</div>
+        <div class="meta">{len(pls)} playlists · {len(seguidos)} siguiendo · {len(likes)} me gusta ·
+        miembro desde {u['signup_date']:%d/%m/%Y}</div></div></div>""", unsafe_allow_html=True)
 
-    def barras(datos, titulo):
-        df = pd.DataFrame(list(datos.items())[:10], columns=['nombre', 'afinidad'])
-        return alt.Chart(df).mark_bar(cornerRadius=4).encode(
-            x=alt.X('afinidad:Q', scale=alt.Scale(domain=[-1, 1]), title=titulo),
-            y=alt.Y('nombre:N', sort='-x', title=None),
-            color=alt.condition(alt.datum.afinidad >= 0, alt.value(VERDE), alt.value("#e05555")),
-            tooltip=['nombre', alt.Tooltip('afinidad:Q', format='.2f')]).properties(height=300)
+    hace30 = ahora() - timedelta(days=30)
+    m = leer("""SELECT IFNULL(SUM(ms_played),0) AS ms, COUNT(*) AS n, COUNT(DISTINCT song_id) AS distintas
+                  FROM song_played WHERE user_id=%s AND played_at >= %s AND skipped=0""", (S.uid, hace30))[0]
+    c = st.columns(3)
+    c[0].metric("⏱️ Minutos escuchados", f"{int(m['ms']) // 60000:,}", help="Últimos 30 días")
+    c[1].metric("▶️ Reproducciones", f"{m['n']:,}", help="Últimos 30 días, sin contar las saltadas")
+    c[2].metric("🎵 Canciones distintas", f"{m['distintas']:,}", help="Últimos 30 días")
 
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("##### Tus géneros")
-        if p['generos']:
-            st.altair_chart(barras(p['generos'], "← no te gusta · te gusta →"), width="stretch")
-    with c2:
-        st.markdown("##### Tus artistas")
-        if p['artistas']:
-            st.altair_chart(barras(p['artistas'], ""), width="stretch")
-    ev = S.evolucion
-    if len(ev) > 1:
-        st.markdown("##### Cómo cambió tu perfil en esta sesión")
-        df = pd.DataFrame(ev).fillna(0)
-        largo = df.melt(id_vars=['paso', 'motivo'], var_name='genero', value_name='afinidad')
-        principales = largo.groupby('genero').afinidad.apply(lambda x: x.abs().max()).nlargest(6).index
-        largo = largo[largo.genero.isin(principales)]
-        st.altair_chart(alt.Chart(largo).mark_line(point=True).encode(
-            x=alt.X('paso:O', title="interacción"), y=alt.Y('afinidad:Q', scale=alt.Scale(domain=[-1, 1])),
-            color=alt.Color('genero:N', title=None),
-            tooltip=['motivo', 'genero', alt.Tooltip('afinidad:Q', format='.2f')]).properties(height=280),
-            width="stretch")
-    with st.expander("ℹ️ ¿Cómo aprende?"):
-        st.markdown("""
-Cada evento es una señal para la canción, su género y su artista:
-**escuchar completa** +1 · **saltar antes de 30 s** −0.6 · **me gusta** +3 · **no me interesa** −2.5 ·
-**clic en búsqueda** +0.5 · **seguir artista** +2. Lo reciente pesa más (vida media de 14 días).
-`score = 0.45·género + 0.25·artista + 0.20·sonido parecido + 0.10·popularidad`.
-No se recomiendan canciones que ya te gustan, que descartaste o que escuchaste completas en las últimas 24 h.""")
+    top = leer("""SELECT song_id, COUNT(*) AS n FROM song_played WHERE user_id=%s AND played_at >= %s AND skipped=0
+                  GROUP BY song_id ORDER BY n DESC LIMIT 50""", (S.uid, hace30))
+    conteo_art = {}
+    for t in top:
+        for a in artistas_de(cat.get(t['song_id'], {})):
+            conteo_art[a] = conteo_art.get(a, 0) + t['n']
+    st.markdown('<div class="seccion">Artistas más escuchados este mes</div>', unsafe_allow_html=True)
+    if not conteo_art:
+        st.caption("Escucha música para ver aquí a tus artistas favoritos.")
+    else:
+        cols = st.columns(6)
+        for i, (a, n) in enumerate(sorted(conteo_art.items(), key=lambda x: -x[1])[:6]):
+            with cols[i]:
+                st.markdown(f'<div class="card">{portada(a, artistas().get(a, {}).get("genero"), redonda=True)}'
+                            f'<div class="t" style="text-align:center">{esc(a)}</div>'
+                            f'<div class="a" style="text-align:center">{n} reproducciones</div></div>',
+                            unsafe_allow_html=True)
+                if st.button("Abrir", key=f"perf_a_{i}", width="stretch"):
+                    S.detalle = ('artista', a); st.rerun()
+
+    st.markdown('<div class="seccion">Canciones más escuchadas este mes</div>', unsafe_allow_html=True)
+    ids = [t['song_id'] for t in top[:10] if t['song_id'] in cat]
+    if not ids:
+        st.caption("Todavía no hay canciones este mes.")
+    else:
+        lista(ids, 'playlist', 'Tus canciones top', "perf", likes)
+
+    gustos = [g for g, v in (S.perfil or {}).get('generos', {}).items() if v > 0][:5]
+    if gustos:
+        st.markdown('<div class="seccion">Tus géneros</div>', unsafe_allow_html=True)
+        st.markdown("".join(f'<span class="chip verde">{ICONO_GENERO.get(g, "🎵")} {esc(g)}</span>' for g in gustos),
+                    unsafe_allow_html=True)
+
+
+def aviso_saltos():
+    """Como en Spotify Free: solo se avisa cuando ya casi no quedan saltos."""
+    if es_premium():
+        return ""
+    quedan = LIMITE_SALTOS_HORA - saltos_ultima_hora()
+    if quedan > 2:
+        return ""
+    return (f'<div class="np-a" style="color:#f5c518">Te quedan {max(quedan, 0)} saltos esta hora</div>')
 
 
 # =====================================================================
@@ -1211,17 +1214,16 @@ def barra_reproductor():
             sig = S.cola[S.pos + 1] if S.pos + 1 < len(S.cola) else None
             st.markdown(f'<div class="np-a">Desde: {esc(s["detalle"])}</div>'
                         f'<div class="np-a">Sigue: {esc(catalogo()[sig["song_id"]]["title"]) if sig else "Autoplay ✨"}</div>'
-                        + ("" if es_premium() else
-                           f'<div class="np-a">Free · saltos esta hora: {saltos_ultima_hora()}/{LIMITE_SALTOS_HORA}</div>'),
+                        + aviso_saltos(),
                         unsafe_allow_html=True)
 
 
 # =====================================================================
 # APP PRINCIPAL
 # =====================================================================
-PAGINAS = ["🏠 Inicio", "🔎 Buscar", "📚 Tu biblioteca", "🧠 Tu gusto musical"]
+PAGINAS = ["🏠 Inicio", "🔎 Buscar", "📚 Tu biblioteca", "👤 Tu perfil"]
 PANTALLA_UI = {"🏠 Inicio": "home", "🔎 Buscar": "search", "📚 Tu biblioteca": "your_library",
-               "🧠 Tu gusto musical": "profile"}
+               "👤 Tu perfil": "profile"}
 
 
 def al_cambiar_menu():
@@ -1276,13 +1278,12 @@ def app_principal():
                     cancelar_premium(); st.rerun()
         elif st.button("💎 Hazte Premium", type="primary", width="stretch"):
             S.paywall = 'home_banner'; st.rerun()
-        st.segmented_control("⏩ Velocidad de reproducción (demo)", [1, 5, 10, 30], default=S.vel_demo,
-                             key="vel_widget", on_change=cambiar_velocidad, format_func=lambda v: f"x{v}",
-                         help="x1 es tiempo real. Para la demo conviene x10: una canción dura ~20 s. "
-                              "En la base se guarda el tiempo de canción, como si fuera tiempo real.")
+        with st.popover("⚙️ Configuración", width="stretch"):
+            st.segmented_control("⏩ Velocidad de reproducción (demo)", [1, 5, 10, 30], default=S.vel_demo,
+                                 key="vel_widget", on_change=cambiar_velocidad, format_func=lambda v: f"x{v}")
+            st.caption("x1 es tiempo real. Para una demostración conviene x10: una canción dura unos 20 s.")
         if st.button("Cerrar sesión", width="stretch"):
             cerrar_sesion(); st.rerun()
-        st.caption(f"🗄️ Base `{DB_NAME}` (datos reales)")
 
     d = S.detalle
     if d and d[0] == 'likes':
@@ -1293,7 +1294,7 @@ def app_principal():
         vista_artista(d[1], likes)
     else:
         {"🏠 Inicio": lambda: pagina_inicio(likes), "🔎 Buscar": lambda: pagina_buscar(likes),
-         "🧠 Tu gusto musical": pagina_gusto, "📚 Tu biblioteca": pagina_biblioteca}[S.get('menu', PAGINAS[0])]()
+         "👤 Tu perfil": lambda: pagina_perfil(likes), "📚 Tu biblioteca": pagina_biblioteca}[S.get('menu', PAGINAS[0])]()
     barra_reproductor()
 
 

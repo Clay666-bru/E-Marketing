@@ -66,7 +66,7 @@ Antes de las correcciones esta auditoría encontró **5 reglas en rojo** (G1, G2
 
 | Prueba | Resultado |
 |---|---|
-| 🏠 Inicio, ✨ Para ti, 📡 Telemetría y 🗄️ Base de datos cargan sin excepciones ni errores | ✅ 4/4 |
+| 🏠 Inicio, 📺 En vivo, 📈 Marketing, 🧠 Recomendaciones, 📡 Telemetría y 🗄️ Base de datos cargan sin excepciones ni errores | ✅ 6/6 |
 | Tablas vacías: la app conserva las columnas aunque una consulta no devuelva filas (error A1 de CAMBIOS.md) | ✅ (filtros sin resultados, buscador sin coincidencias, usuario sin historial) |
 
 ## Apartado 3b · 📈 Marketing
@@ -84,16 +84,20 @@ Los resultados de la app se compararon con consultas SQL hechas por separado y c
 | Conclusiones automáticas («la hipótesis se cumple», «diferencia significativa») | ✅ |
 | Revisión visual en el navegador de las 5 pestañas; se corrigieron 6 detalles de diseño (ver CAMBIOS.md, M7–M12) | ✅ |
 
-## Apartado 4 · ✨ Para ti
+## Apartado 4 · 🧠 Recomendaciones (antes «✨ Para ti»)
+
+El panel es del **administrador**: la página dejó de simular al usuario (sin pop-up de bienvenida ni botones de escuchar / me gusta) y ahora es un inspector.
 
 | Prueba | Resultado |
 |---|---|
-| Recorrer los **45 usuarios** uno por uno | ✅ |
-| Filtros nueva / escuchada / guardada / descartada / Todas (incluyendo filtros sin resultados) | ✅ 5/5 |
+| Recorrer **todos los usuarios** uno por uno | ✅ |
+| Filtros por resultado: nueva / escuchada / saltada / guardada / descartada / Todas (incluyendo filtros sin resultados) | ✅ 6/6 |
 | Regenerar las recomendaciones de un usuario sin historial (Ana) da 10 de `cold_start_popularity` | ✅ |
-| Usuario con nombre vacío (pop-up de bienvenida) | ✅ |
+| Regenerar con el motor en vivo guarda las recomendaciones con `telemetry_live_learning` | ✅ |
+| El panel no tiene botones para escuchar o dar me gusta en nombre del usuario | ✅ |
+| Usuario con nombre vacío | ✅ |
 | Regenerar cuando existe una canción sin artista ni género | ✅ |
-| 0 razones contradictorias en los 45 usuarios | ✅ |
+| 0 razones contradictorias | ✅ |
 
 ## Apartado 5 · 📡 Telemetría
 
@@ -133,6 +137,8 @@ Los resultados de la app se compararon con consultas SQL hechas por separado y c
 
 ## Apartado 8 · Pop-ups, verificados a mano en el navegador
 
+> Las cinco primeras filas (pop-ups de «Para ti») corresponden a la versión anterior del panel: esos pop-ups se quitaron porque escuchar y dar me gusta ahora se hace en la app de usuario «Mi Spotify» (ver apartado 9).
+
 `AppTest` de Streamlit no puede presionar botones dentro de `st.dialog`, así que estos flujos se probaron en el navegador con la app conectada a la **base original**, entre `respaldo.py foto` y `respaldo.py restaurar`. Para las bajas se creó un usuario temporal (#46, «ZZ Prueba Bajas») con reproducción, like, playlist y suscripción; así no se borró ningún dato real.
 
 | Prueba | Resultado |
@@ -146,3 +152,32 @@ Los resultados de la app se compararon con consultas SQL hechas por separado y c
 | Bajas → «Cancelar» (usuario 46): no borra nada | ✅ |
 | Bajas → «Sí, eliminar» del usuario 46: se borran el usuario y su reproducción, like, playlist y suscripción, sin errores de llave foránea | ✅ |
 | `respaldo.py restaurar`: las 19 tablas quedan idénticas a la foto y la auditoría da 0 | ✅ |
+
+## Apartado 0 · Acceso de administrador (`test_app.py`)
+
+| Prueba | Resultado |
+|---|---|
+| Sin sesión, el panel solo muestra el formulario de usuario y contraseña | ✅ |
+| Contraseña incorrecta: «Usuario o contraseña incorrectos» y no entra | ✅ |
+| Contraseña correcta: aparece el menú | ✅ |
+
+## Apartado 9 · App de usuario «Mi Spotify» (`pruebas/test_usuario.py`)
+
+Corre sobre la base original entre foto y restauración, igual que `test_app.py`.
+
+| Prueba | Resultado |
+|---|---|
+| Registro: usuario `free` con `signup_source = 'app_en_vivo'` y sesión abierta | ✅ |
+| Onboarding con 3 artistas → 3 `artist_follows`, 10 recomendaciones y 10 impresiones | ✅ |
+| El usuario no ve datos internos (% de match ni el nombre de la base) | ✅ |
+| Canción terminada → `trackdone`, la recomendación queda reproducida y completada | ✅ |
+| ⏭ antes de 30 s → `fwdbtn`, `skipped = 1` | ✅ |
+| Anuncio después de 3 canciones (impresión y `complete`) y la música sigue | ✅ |
+| Límite de 6 saltos por hora con `paywall_view` (`skip_limit_reached`) | ✅ |
+| Me gusta / quitar me gusta / no me interesa; lo que te gusta o descartaste ya no se recomienda | ✅ |
+| Búsqueda con clic guardado (resultado, posición y tiempo) | ✅ |
+| Crear playlist (se abre sola), página de artista, dejar de seguir y Tu perfil | ✅ |
+| 7 reglas de integridad (plays dentro de su sesión, `tracks_played`, skips < 30 s, guardadas con play, etc.) | ✅ |
+| Restauración: las 19 tablas idénticas a la foto | ✅ |
+
+Revisión en el navegador: reproductor en tiempo real y Autoplay, anuncio de al menos 5 s, oferta Premium que no se cierra al cambiar de canción, prueba gratis de Premium (sin anuncios) y la página «📺 En vivo» del administrador mostrando al usuario en línea.

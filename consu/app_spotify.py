@@ -85,8 +85,6 @@ st.markdown(f"""
   .card .a {{ color:#b3b3b3; font-size:.8rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
   .card .s {{ color:{VERDE}; font-size:.75rem; font-weight:700; margin-top:6px; }}
 
-  .barra {{ background:#333; border-radius:4px; height:8px; overflow:hidden; margin:2px 0 10px; }}
-  .barra > div {{ background:{VERDE}; height:100%; }}
 
   .stButton > button, .stFormSubmitButton > button {{ border-radius:999px; font-weight:700; border:1px solid #535353;
                                                       background:transparent; color:#fff; }}
@@ -204,13 +202,6 @@ def portada(song_id, genero):
             f'{ICONO_GENERO.get(genero, "🎵")}</div>')
 
 
-def barra(etiqueta, valor):
-    v = max(0.0, min(float(valor or 0), 1.0))
-    return (f'<div style="display:flex;justify-content:space-between;font-size:.85rem;color:#b3b3b3">'
-            f'<span>{etiqueta}</span><span>{v*100:.0f}%</span></div>'
-            f'<div class="barra"><div style="width:{v*100:.0f}%"></div></div>')
-
-
 # Verificar conexión antes de dibujar nada
 try:
     conectar_db().close()
@@ -258,7 +249,7 @@ with st.sidebar:
         justify-content:center;font-size:22px">🛡️</div>
         <div><div style="color:#fff;font-weight:900;font-size:1.2rem">Panel de administrador</div>
         <div style="font-size:.75rem">Spotify Analytics · E-Marketing UAdeO</div></div></div>""", unsafe_allow_html=True)
-    pagina = st.radio("Menú", ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "✨ Para ti", "📡 Telemetría",
+    pagina = st.radio("Menú", ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "🧠 Recomendaciones", "📡 Telemetría",
                                "🗄️ Base de datos"], label_visibility="collapsed")
     try:
         _ult = consulta("SELECT MAX(played_at) AS ultima FROM song_played")
@@ -274,85 +265,33 @@ with st.sidebar:
 
 
 # =====================================================================
-# POP-UPS (diálogos)
+# RECOMENDACIONES Y POP-UP DE CONFIRMACIÓN
 # =====================================================================
 def tabla_recs(user_id):
+    """Recomendaciones actuales del usuario. «status» es el RESULTADO real: lo que el usuario hizo con
+    cada recomendación después de recibirla (en la app «Mi Spotify» o en los datos simulados)."""
     return consulta("""
         SELECT ur.recommendation_id, ur.rank_position, ur.song_id, s.title, s.artist, s.genre, s.album,
                s.popularity, ur.score, ur.genre_affinity, ur.artist_affinity, ur.audio_similarity,
-               ur.reason, ur.status, ur.algorithm, ur.generated_at, b.title AS based_on
+               ur.reason, ur.algorithm, ur.generated_at, b.title AS based_on,
+               CASE
+                 WHEN EXISTS (SELECT 1 FROM recommendation_events e WHERE e.user_id = ur.user_id
+                               AND e.song_id = ur.song_id AND e.dismissed = 1 AND e.shown_at >= ur.generated_at)
+                      THEN 'descartada'
+                 WHEN EXISTS (SELECT 1 FROM song_liked l WHERE l.user_id = ur.user_id AND l.song_id = ur.song_id
+                               AND l.liked_at >= ur.generated_at) THEN 'guardada'
+                 WHEN EXISTS (SELECT 1 FROM song_played p WHERE p.user_id = ur.user_id AND p.song_id = ur.song_id
+                               AND p.played_at >= ur.generated_at AND p.skipped = 0) THEN 'escuchada'
+                 WHEN EXISTS (SELECT 1 FROM song_played p WHERE p.user_id = ur.user_id AND p.song_id = ur.song_id
+                               AND p.played_at >= ur.generated_at AND p.skipped = 1) THEN 'saltada'
+                 ELSE ur.status
+               END AS status
           FROM user_recommendations ur
           JOIN songs s ON s.song_id = ur.song_id
           LEFT JOIN songs b ON b.song_id = ur.based_on_song_id
          WHERE ur.user_id = %s
          ORDER BY ur.rank_position
     """, (int(user_id),))
-
-
-@st.dialog("✨ Recomendaciones para ti", width="large")
-def popup_bienvenida(user_id, nombre):
-    df = tabla_recs(user_id)
-    primer_nombre = (str(nombre).split() or ["👋"])[0]
-    st.markdown(f"### ¡Hola, {esc(primer_nombre)}! 👋")
-    if df.empty:
-        st.info("Aún no tenemos recomendaciones para ti. Escucha algo de música y vuelve pronto.")
-        return
-    nuevas = df[df["status"] == "nueva"]
-    st.markdown(f"Según la música que has escuchado, encontramos **{len(nuevas)} canciones** que te pueden gustar. "
-                "Estas son las 5 mejores:")
-    cols = st.columns(5)
-    for col, (_, r) in zip(cols, df.head(5).iterrows()):
-        col.markdown(f"""<div class="card">{portada(r.song_id, r.genre)}<div class="t">{esc(r.title)}</div>
-                     <div class="a">{esc(r.artist)}</div><div class="s">{float(r.score)*100:.0f}% match</div></div>""",
-                     unsafe_allow_html=True)
-    st.caption(f"💡 {df.iloc[0]['reason']}")
-    if st.button("Ver todas mis recomendaciones", type="primary", width="stretch"):
-        st.rerun()
-
-
-@st.dialog("🎵 Detalle de la recomendación", width="medium")
-def popup_detalle(user_id, rec):
-    c1, c2 = st.columns([1, 2])
-    c1.markdown(portada(rec["song_id"], rec["genre"]), unsafe_allow_html=True)
-    c2.markdown(f"""<div style="font-size:1.5rem;font-weight:800;color:#fff">{esc(rec['title'])}</div>
-        <div style="color:#b3b3b3">{esc(rec['artist'])} · {esc(rec['album'])}</div>
-        <div style="margin-top:8px"><span class="chip verde">{float(rec['score'])*100:.0f}% match</span>
-        <span class="chip">{esc(rec['genre'])}</span><span class="chip">#{int(rec['rank_position'])}</span></div>""",
-                unsafe_allow_html=True)
-    st.markdown(f"**¿Por qué te la recomendamos?**  \n{esc(rec['reason'])}")
-    st.markdown(barra("Afinidad con tus géneros", rec["genre_affinity"]) +
-                barra("Afinidad con tus artistas", rec["artist_affinity"]) +
-                barra("Parecido al sonido que escuchas", rec["audio_similarity"]) +
-                barra("Popularidad", (rec["popularity"] or 0) / 100), unsafe_allow_html=True)
-    st.caption(f"Algoritmo: {rec['algorithm']} · Estado: {rec['status']} · Generada: {rec['generated_at']}")
-
-    b1, b2, b3 = st.columns(3)
-    ahora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if b1.button("▶ Escuchar", type="primary", width="stretch"):
-        # Se registra como reproducción completa (ms_played = duración de la canción)
-        ejecutar("""INSERT INTO song_played (user_id, song_id, played_at, ms_played, source, source_detail, reason_start)
-                    SELECT %s, song_id, %s, IFNULL(duration_ms, 180000), 'recommendation', 'Para ti (app)', 'clickrow'
-                      FROM songs WHERE song_id = %s""",
-                 (int(user_id), ahora, int(rec["song_id"])))
-        ejecutar("UPDATE user_recommendations SET status='escuchada' WHERE recommendation_id=%s",
-                 (int(rec["recommendation_id"]),))
-        avisar(f"Reproduciendo «{rec['title']}» 🎶", "▶️")
-        st.rerun()
-    if b2.button("❤ Me gusta", width="stretch"):
-        # Solo se agrega el like si todavía no existe (evita likes duplicados al pulsar dos veces)
-        ejecutar("""INSERT INTO song_liked (user_id, song_id, liked_at, source)
-                    SELECT %s, %s, %s, 'recommendation' FROM DUAL
-                     WHERE NOT EXISTS (SELECT 1 FROM song_liked WHERE user_id = %s AND song_id = %s)""",
-                 (int(user_id), int(rec["song_id"]), ahora, int(user_id), int(rec["song_id"])))
-        ejecutar("UPDATE user_recommendations SET status='guardada' WHERE recommendation_id=%s",
-                 (int(rec["recommendation_id"]),))
-        avisar(f"«{rec['title']}» se agregó a Tus me gusta", "💚")
-        st.rerun()
-    if b3.button("🚫 No me interesa", width="stretch"):
-        ejecutar("UPDATE user_recommendations SET status='descartada' WHERE recommendation_id=%s",
-                 (int(rec["recommendation_id"]),))
-        avisar("Listo, te mostraremos menos música así", "👌")
-        st.rerun()
 
 
 @st.dialog("⚠️ Confirmar eliminación")
@@ -479,14 +418,16 @@ def pagina_inicio():
 
 
 # =====================================================================
-# PÁGINA: PARA TI (recomendaciones según la música escuchada)
+# PÁGINA: RECOMENDACIONES (inspector del administrador)
 # =====================================================================
-def pagina_para_ti():
-    usuarios = consulta("SELECT user_id, username, account_type, city FROM users ORDER BY user_id")
+def pagina_recomendaciones():
+    """Inspector del ADMINISTRADOR: qué se le recomienda a cada usuario, por qué y cómo le funcionó."""
+    usuarios = consulta("SELECT user_id, username, account_type, city, signup_source FROM users ORDER BY user_id")
     if usuarios.empty:
         st.info("No hay usuarios registrados.")
         return
-    opciones = {int(r.user_id): f"{r.username}  ·  #{r.user_id}" for r in usuarios.itertuples()}
+    opciones = {int(r.user_id): f"{r.username}  ·  #{r.user_id}" + ("  · app" if r.signup_source == "app_en_vivo" else "")
+                for r in usuarios.itertuples()}
     with st.sidebar:
         st.markdown("**👤 Usuario**")
         uid = st.selectbox("Usuario", list(opciones), format_func=opciones.get, label_visibility="collapsed")
@@ -506,82 +447,107 @@ def pagina_para_ti():
     iniciales = "".join(p[0] for p in str(u.username).split()[:2]).upper()
     plan = "PREMIUM 💎" if u.account_type == "premium" else "FREE"
     chips = "".join(f'<span class="chip">{esc(g)}</span>' for g in generos.genre.head(4)) if not generos.empty else ""
+    ultima = pd.Timestamp(perfil.ultima).strftime("%d/%m/%Y %H:%M") if pd.notna(perfil.ultima) else "nunca"
     st.markdown(f"""<div class="perfil"><div class="avatar">{esc(iniciales)}</div><div>
-        <div class="tipo">Perfil · <span class="chip verde">{plan}</span></div>
+        <div class="tipo">Usuario #{int(uid)} · <span class="chip verde">{plan}</span>
+        <span class="chip">{esc(u.signup_source or '')}</span></div>
         <div class="nombre">{esc(u.username)}</div>
         <div class="meta">📍 {esc(u.city or 'México')} · {int(perfil.plays or 0):,} reproducciones ·
-        {float(perfil.horas or 0):.1f} h escuchadas · {int(perfil.canciones or 0)} canciones distintas</div>
+        {float(perfil.horas or 0):.1f} h · {int(perfil.canciones or 0)} canciones distintas ·
+        {int(perfil.skip or 0)}% saltadas · última escucha: {ultima}</div>
         <div style="margin-top:8px">{chips}</div></div></div>""", unsafe_allow_html=True)
     guia("""
-- Elige un **usuario** en la barra lateral. Sus recomendaciones salen de **lo que ha escuchado** (`recomendador.py`):
-  `score = 0.45·género + 0.25·artista + 0.20·sonido + 0.10·popularidad`.
-- **% match** es ese score. **Detalles** explica el porqué y permite **Escuchar**, dar **Me gusta** o
-  **No me interesa**; cada acción se guarda en la base y cambia el estado de la recomendación.
-- **🔄 Regenerar** vuelve a calcular con el historial actual (prueba: escucha varias canciones de un género y regenera).
-- Un usuario sin historial (por ejemplo **Ana Gomez**) recibe las canciones más populares (*arranque en frío*).""")
+- Elige un **usuario** en la barra lateral. Aquí ves **qué le recomienda el sistema, por qué y qué hizo con eso**;
+  el usuario las ve en la app «Mi Spotify».
+- **Motores**: `recomendador.py` (por historial, el que usa el generador) y `aprendizaje.py` (en vivo: también usa
+  saltos, likes, descartes, búsquedas y artistas seguidos). La app de usuario usa el motor en vivo.
+- `score = 0.45·género + 0.25·artista + 0.20·sonido + 0.10·popularidad`.
+- **Resultado** se calcula con lo que hizo el usuario **después** de recibir la recomendación:
+  `descartada` (✕), `guardada` (me gusta), `escuchada` (la escuchó sin saltarla), `saltada` o `nueva`.
+- **🔄 Regenerar** recalcula con el motor elegido y reemplaza las 10 recomendaciones del usuario.""")
 
-    # Pop-up automático la primera vez que se abre cada usuario
-    vistos = st.session_state.setdefault("_popup_vistos", set())
-    if uid not in vistos:
-        vistos.add(uid)
-        popup_bienvenida(uid, str(u.username))
+    # Rendimiento de las recomendaciones que se le mostraron a este usuario
+    r = consulta("""SELECT COUNT(*) AS imp, IFNULL(SUM(clicked),0) AS clic, IFNULL(SUM(played),0) AS rep,
+                           IFNULL(SUM(saved),0) AS guard, IFNULL(SUM(dismissed),0) AS desc_,
+                           IFNULL(SUM(skipped),0) AS salt
+                      FROM recommendation_events WHERE user_id = %s""", (uid,)).iloc[0]
+    c = st.columns(5)
+    kpi(c[0], "Impresiones", f"{int(r.imp):,}", "👀", "veces que se le mostraron")
+    kpi(c[1], "CTR", f"{pct(r.clic, r.imp):.1f}%", "🖱️", f"{int(r.clic):,} clics")
+    kpi(c[2], "Reproducidas", f"{int(r.rep):,}", "▶️", f"{pct(r.salt, r.rep):.0f}% saltadas")
+    kpi(c[3], "Guardadas", f"{int(r.guard):,}", "💚", f"{pct(r.guard, r.rep):.0f}% de las reproducidas")
+    kpi(c[4], "Descartadas", f"{int(r.desc_):,}", "🚫", "«no me interesa»")
+    st.write("")
 
     df = tabla_recs(uid)
-
-    a1, a2, a3, _ = st.columns([1.3, 2.2, 1.4, 2.5])
-    if a1.button("✨ Ver pop-up", width="stretch"):
-        popup_bienvenida(uid, str(u.username))
+    algoritmo_actual = df.algorithm.iloc[0] if not df.empty else ""
+    motores = {"📜 Historial · recomendador.py": "historial", "🧠 En vivo · aprendizaje.py": "vivo"}
+    a1, a2, a3 = st.columns([2.6, 2.2, 1.4], vertical_alignment="bottom")
+    motor = a1.segmented_control("Motor", list(motores), label_visibility="collapsed", key="motor_recs",
+                                 default=list(motores)[1 if algoritmo_actual == aprendizaje.ALGORITMO else 0])
     if a2.button("🔄 Regenerar recomendaciones", type="primary", width="stretch"):
         cx = conectar_db()
-        n = recomendador.guardar_recomendaciones(cx, user_ids=[uid], top_n=10)
-        cx.close(); st.cache_data.clear()
-        avisar(f"Se generaron {n} recomendaciones nuevas con tu historial actual", "✨")
+        try:
+            if motores.get(motor or "", "historial") == "vivo":
+                n = len(aprendizaje.guardar(cx, int(uid), top_n=10)['recs'])
+            else:
+                n = recomendador.guardar_recomendaciones(cx, user_ids=[uid], top_n=10)
+        finally:
+            cx.close()
+        st.cache_data.clear()
+        avisar(f"Se generaron {n} recomendaciones con el motor «{motor}»", "✨")
         st.rerun()
-    filtro = a3.selectbox("Estado", ["Todas", "nueva", "escuchada", "guardada", "descartada"],
+    filtro = a3.selectbox("Resultado", ["Todas", "nueva", "escuchada", "saltada", "guardada", "descartada"],
                           label_visibility="collapsed")
 
     if df.empty:
         st.info("Este usuario aún no tiene recomendaciones. Pulsa **Regenerar recomendaciones**.")
-        return
+    else:
+        vista = df if filtro == "Todas" else df[df.status == filtro]
+        st.subheader("📋 Recomendaciones actuales")
+        st.caption(f"Motor: `{algoritmo_actual}` · generadas: {df.generated_at.iloc[0]}")
+        if vista.empty:
+            st.info(f"No hay recomendaciones con resultado «{filtro}» para este usuario.")
+        else:
+            st.dataframe(
+                vista[["rank_position", "title", "artist", "genre", "score", "genre_affinity", "artist_affinity",
+                       "audio_similarity", "reason", "based_on", "status"]],
+                hide_index=True, width="stretch",
+                column_config={
+                    "rank_position": st.column_config.NumberColumn("#", width="small"),
+                    "title": "Canción", "artist": "Artista", "genre": "Género",
+                    "score": st.column_config.ProgressColumn("Score", format="%.2f", min_value=0, max_value=1),
+                    "genre_affinity": st.column_config.ProgressColumn("Género", format="%.2f", min_value=0, max_value=1),
+                    "artist_affinity": st.column_config.ProgressColumn("Artista", format="%.2f", min_value=0, max_value=1),
+                    "audio_similarity": st.column_config.ProgressColumn("Sonido", format="%.2f", min_value=0, max_value=1),
+                    "reason": st.column_config.TextColumn("Razón que ve el usuario", width="large"),
+                    "based_on": "Basada en", "status": "Resultado",
+                })
 
-    vista = df if filtro == "Todas" else df[df.status == filtro]
-    if vista.empty:
-        st.info(f"No hay recomendaciones con estado «{filtro}» para este usuario.")
-        return
+    st.subheader("🧠 Qué aprendió el modelo en vivo")
+    cx = conectar_db()
+    try:
+        res = aprendizaje.aprender(cx, int(uid), top_n=10)
+    finally:
+        cx.close()
+    st.caption(" · ".join(f"{k.replace('_', ' ')}: **{v}**" for k, v in res['senales'].items())
+               or "Sin señales: arranque en frío (recomendaciones por popularidad).")
+    p1, p2 = st.columns(2)
+    for col, datos, titulo in [(p1, res['generos'], "Afinidad por género"), (p2, res['artistas'], "Afinidad por artista")]:
+        with col:
+            st.markdown(f"**{titulo}** (−1 no le gusta · 1 le gusta)")
+            if datos:
+                d = pd.DataFrame(list(datos.items())[:10], columns=['nombre', 'afinidad'])
+                st.altair_chart(_alt_config(alt.Chart(d).mark_bar(cornerRadius=4).encode(
+                    x=alt.X('afinidad:Q', scale=alt.Scale(domain=[-1, 1]), title=None),
+                    y=alt.Y('nombre:N', sort='-x', title=None),
+                    color=alt.condition(alt.datum.afinidad >= 0, alt.value(VERDE), alt.value("#e05555")),
+                    tooltip=['nombre', alt.Tooltip('afinidad:Q', format='.2f')]).properties(height=260)),
+                    width="stretch")
+            else:
+                st.caption("Sin datos.")
 
-    st.subheader("Hecho para ti")
-    st.caption("Recomendaciones calculadas con lo que escuchaste: géneros, artistas y el sonido de tus canciones. "
-               "Pulsa **Detalles** para ver por qué y escucharla.")
-    tarjetas = vista.head(10)
-    for fila in range(0, len(tarjetas), 5):
-        cols = st.columns(5)
-        for col, (_, r) in zip(cols, tarjetas.iloc[fila:fila + 5].iterrows()):
-            estado = {"escuchada": "▶ escuchada", "guardada": "💚 guardada", "descartada": "🚫 descartada"}.get(r.status, "")
-            col.markdown(f"""<div class="card">{portada(r.song_id, r.genre)}<div class="t">{esc(r.title)}</div>
-                <div class="a">{esc(r.artist)}</div>
-                <div class="s">{float(r.score)*100:.0f}% match <span style="color:#b3b3b3;font-weight:400">{estado}</span></div>
-                </div>""", unsafe_allow_html=True)
-            if col.button("Detalles", key=f"det_{r.recommendation_id}", width="stretch"):
-                popup_detalle(uid, r.to_dict())
-        st.write("")
-
-    st.subheader("📋 Tabla de recomendaciones")
-    st.dataframe(
-        vista[["rank_position", "title", "artist", "genre", "score", "genre_affinity", "artist_affinity",
-               "audio_similarity", "reason", "based_on", "status"]],
-        hide_index=True, width="stretch",
-        column_config={
-            "rank_position": st.column_config.NumberColumn("#", width="small"),
-            "title": "Canción", "artist": "Artista", "genre": "Género",
-            "score": st.column_config.ProgressColumn("Match", format="%.2f", min_value=0, max_value=1),
-            "genre_affinity": st.column_config.ProgressColumn("Género", format="%.2f", min_value=0, max_value=1),
-            "artist_affinity": st.column_config.ProgressColumn("Artista", format="%.2f", min_value=0, max_value=1),
-            "audio_similarity": st.column_config.ProgressColumn("Sonido", format="%.2f", min_value=0, max_value=1),
-            "reason": st.column_config.TextColumn("¿Por qué?", width="large"),
-            "based_on": "Basada en", "status": "Estado",
-        })
-
-    st.subheader("🎚️ Tu perfil de escucha")
+    st.subheader("🎚️ Perfil de escucha")
     p1, p2 = st.columns(2)
     with p1:
         st.markdown("**Géneros (horas)**")
@@ -1304,7 +1270,7 @@ def pagina_en_vivo():
 - Todo sale de la base real con la **fecha y hora de hoy**: registros, sesiones, reproducciones, saltos, anuncios y Premium.
 - **En línea**: sesiones de la app web con actividad en los últimos 5 minutos.
 - **CTR del modelo en vivo**: clics sobre las recomendaciones del grupo `L` (motor `aprendizaje.py`), que queda fuera de la prueba A/B.
-- Abajo puedes elegir un usuario y ver **qué aprendió el modelo** de él y qué le está recomendando.""")
+- Lo que aprendió el modelo de cada usuario está en **🧠 Recomendaciones**.""")
 
     @st.fragment(run_every=5)
     def tablero():
@@ -1359,39 +1325,7 @@ def pagina_en_vivo():
 
     tablero()
 
-    st.markdown("#### 🧠 Qué aprendió el modelo de un usuario")
-    usuarios = consulta_vivo("""
-        SELECT u.user_id, u.username, u.signup_source,
-               (SELECT MAX(played_at) FROM song_played p WHERE p.user_id=u.user_id) AS ultima
-          FROM users u ORDER BY (u.signup_source='app_en_vivo') DESC, ultima DESC""")
-    if usuarios.empty:
-        return
-    etiquetas = {int(r.user_id): f"{r.username} (#{r.user_id})" + (" · app en vivo" if r.signup_source == "app_en_vivo" else "")
-                 for r in usuarios.itertuples()}
-    uid = st.selectbox("Usuario", list(etiquetas), format_func=etiquetas.get)
-    cx = conectar_db()
-    try:
-        res = aprendizaje.aprender(cx, int(uid), top_n=10)
-    finally:
-        cx.close()
-    st.caption(" · ".join(f"{k.replace('_', ' ')}: **{v}**" for k, v in res['senales'].items())
-               or "Sin señales: arranque en frío (recomendaciones por popularidad).")
-    c1, c2 = st.columns(2)
-    with c1:
-        if res['generos']:
-            df = pd.DataFrame(list(res['generos'].items()), columns=['genero', 'afinidad'])
-            st.altair_chart(_alt_config(alt.Chart(df).mark_bar(cornerRadius=4).encode(
-                x=alt.X('afinidad:Q', scale=alt.Scale(domain=[-1, 1]), title="afinidad (−1 no le gusta · 1 le gusta)"),
-                y=alt.Y('genero:N', sort='-x', title=None),
-                color=alt.condition(alt.datum.afinidad >= 0, alt.value(VERDE), alt.value("#e05555")),
-                tooltip=['genero', alt.Tooltip('afinidad:Q', format='.2f')]).properties(height=300)), width="stretch")
-    with c2:
-        recs = consulta_vivo("""
-            SELECT r.rank_position AS pos, s.title AS cancion, s.artist AS artista, s.genre AS genero,
-                   r.score, r.reason AS razon, r.algorithm AS algoritmo
-              FROM user_recommendations r JOIN songs s USING(song_id)
-             WHERE r.user_id=%s ORDER BY r.rank_position""", (int(uid),))
-        st.dataframe(recs, hide_index=True, width="stretch", height=320)
+    st.caption("Para ver qué aprendió el modelo de un usuario y qué se le recomienda, abre **🧠 Recomendaciones**.")
 
 
 # =====================================================================
@@ -1403,8 +1337,8 @@ elif pagina == "📺 En vivo":
     pagina_en_vivo()
 elif pagina == "📈 Marketing":
     pagina_marketing()
-elif pagina == "✨ Para ti":
-    pagina_para_ti()
+elif pagina == "🧠 Recomendaciones":
+    pagina_recomendaciones()
 elif pagina == "📡 Telemetría":
     pagina_telemetria()
 else:

@@ -116,7 +116,7 @@ Se actualiza sola cada 5 segundos, sin caché:
 - **6 KPIs de hoy**: registros desde la app, usuarios en línea (actividad en los últimos 5 min), reproducciones y % saltadas, CTR del modelo en vivo (grupo `L`), anuncios e ingreso, y altas Premium junto con cuántos vieron la oferta.
 - **Usuarios en línea**: plan, sesión, duración, canciones y la última que sonó.
 - **Eventos de hoy**: los 80 más recientes de `v_telemetria_unificada`, con el nombre del usuario.
-- **Qué aprendió el modelo**: eliges un usuario (primero los registrados en la app) y ves sus señales, su afinidad por género y las recomendaciones que tiene ahora.
+- Lo que aprendió el modelo de cada usuario y qué se le recomienda está en **🧠 Recomendaciones**.
 
 ### 📈 Marketing: análisis para la toma de decisiones
 Es la página central del proyecto de E-Marketing. Tiene 5 pestañas y todas sacan sus conclusiones automáticamente:
@@ -131,16 +131,14 @@ Es la página central del proyecto de E-Marketing. Tiene 5 pestañas y todas sac
 
 Con los datos actuales: quienes viven el Aha! retienen **100% contra 80%** y llegan a Premium **55% contra 12%** (×4.6). El modelo B mejora el CTR un **+8.3%** (p = 0.0036, significativo).
 
-### ✨ Para ti — Recomendaciones personalizadas
-- En la barra lateral se elige el **usuario**. Se muestra su perfil: plan, ciudad, reproducciones, horas y géneros favoritos.
-- La primera vez que se abre cada usuario aparece un **pop-up** con sus 5 mejores recomendaciones. El botón **✨ Ver pop-up** lo vuelve a abrir.
-- **Hecho para ti**: tarjetas con el % de *match*. El botón **Detalles** abre un pop-up que explica *por qué* se recomienda la canción (afinidad por género y por artista, parecido en sonido y popularidad), con 3 acciones:
-  - **▶ Escuchar**: registra una reproducción completa y marca la recomendación como `escuchada`.
-  - **❤ Me gusta**: agrega la canción a *Tus me gusta* (sin duplicarla) y la marca como `guardada`.
-  - **🚫 No me interesa**: la marca como `descartada`.
-- **🔄 Regenerar recomendaciones** recalcula las recomendaciones con el historial actual del usuario.
-- El selector **Estado** filtra por `nueva`, `escuchada`, `guardada` o `descartada`.
-- Abajo están la tabla completa de recomendaciones y el **perfil de escucha** (géneros en horas y artistas más escuchados).
+### 🧠 Recomendaciones: inspector del administrador
+Aquí el administrador **revisa** las recomendaciones; no escucha ni da «me gusta» en nombre de nadie (eso lo hace cada usuario en «Mi Spotify»).
+- En la barra lateral se elige el **usuario** (los registrados desde la app aparecen marcados con «· app»). Arriba se ve su perfil: plan, origen del registro, reproducciones, horas, % saltadas y última escucha.
+- **5 KPIs del usuario**: impresiones de recomendaciones, CTR, reproducidas (y % saltadas), guardadas y descartadas.
+- **Motor + 🔄 Regenerar**: recalcula sus 10 recomendaciones con `recomendador.py` (por historial) o con `aprendizaje.py` (en vivo, el mismo que usa la app de usuario).
+- **Tabla de recomendaciones actuales**: score, afinidad por género, por artista y por sonido, la razón que ve el usuario, la canción en que se basa y el **resultado real**, calculado con lo que el usuario hizo después de recibirla: `descartada`, `guardada`, `escuchada`, `saltada` o `nueva`. Se puede filtrar por resultado.
+- **Qué aprendió el modelo en vivo**: las señales del usuario y su afinidad por género y por artista, de −1 (no le gusta) a 1 (le gusta).
+- **Perfil de escucha**: géneros en horas y artistas más escuchados.
 
 ### 📡 Telemetría — Eventos de la app
 Hay 8 pestañas:
@@ -174,6 +172,8 @@ El proyecto tiene **dos apps con papeles distintos**, que corren separadas:
 | **Mi Spotify** | El **usuario**: se registra, escucha, guarda y busca música, como en Spotify | `consu/app_usuario.py` | 8502 | `iniciar_usuario.bat` |
 | **Panel de administrador** | El **administrador**: KPIs, marketing, telemetría, gestión de la base y actividad en vivo | `consu/app_spotify.py` | 8501 | `iniciar.bat` |
 
+Cada ventana muestra solo lo que le corresponde. El usuario no ve datos internos (scores, % de match, pesos del modelo, nombres de otras cuentas ni el nombre de la base); el administrador no escucha ni da «me gusta» en nombre de nadie: solo observa, analiza y administra.
+
 Todo lo que hace el usuario se guarda como telemetría en la base **real** `spotify_uadeo_db`; las recomendaciones se **reentrenan al instante** con esas señales y el administrador lo ve en la página **📺 En vivo**.
 
 ```powershell
@@ -189,13 +189,14 @@ python -m streamlit run consu/app_usuario.py --server.port 8502
 | Parte | Qué hace |
 |---|---|
 | 🎧 Reproductor (fijo abajo) | Avanza en **tiempo real** con barra de progreso. ⏮ anterior (o reinicia si ya pasaron 3 s), ⏯ pausa, ⏭ siguiente, 🔀 aleatorio, 🔁 repetir (no / todo / una) y ♡ me gusta. Muestra de dónde viene la canción y cuál sigue. Cuando se acaba la cola, **Autoplay** sigue con tus recomendaciones |
-| 🏠 Inicio | Accesos rápidos (Tus me gusta y lo último que escuchaste), **Hecho para ti** (10 recomendaciones con % de match, razón y flechas ▲▼ de cuántos lugares subió o bajó cada una), **Tus mixes diarios** (un Daily Mix por cada género que te gusta) y **Populares en México** |
+| 🏠 Inicio | Accesos rápidos (Tus me gusta y lo último que escuchaste), **Hecho para ti** (10 recomendaciones con la razón, por ejemplo «Porque te gusta Peso Pluma»; se actualizan con cada canción), **Tus mixes diarios** (un Daily Mix por cada género que te gusta) y **Populares en México** |
 | 🔎 Buscar | Sin texto muestra **Explorar todo** por género. Busca canciones, artistas, géneros o álbumes; guarda la búsqueda y en qué resultado hiciste clic |
 | 📚 Tu biblioteca | Tus me gusta, tus playlists y los artistas que sigues |
 | 🎶 Playlists | **➕ Crear playlist** en la barra lateral; agrega canciones desde el menú **⋯** de cualquier canción, quítalas con ✕, edita nombre y descripción, ▶ reproducir o 🔀 aleatorio |
 | 👤 Artista | Oyentes y seguidores reales de la base, **Seguir / Siguiendo**, ▶ reproducir y 📻 radio del género |
 | ⋯ Menú de canción | Ir al artista, agregar a una playlist (o crear una nueva), compartir (WhatsApp, Instagram, enlace) y ⬇ descargar (solo Premium) |
-| 🧠 Tu gusto musical | Tu afinidad por género y por artista (verde = te gusta, rojo = no), tus señales y cómo cambió tu perfil en la sesión |
+| 👤 Tu perfil | Como el perfil de Spotify: playlists, siguiendo y me gusta; minutos escuchados, artistas y canciones más escuchadas del mes, y tus géneros |
+| ⚙️ Configuración | Velocidad de reproducción para la demostración |
 
 ### Free y Premium (reglas de Spotify)
 
@@ -259,6 +260,7 @@ No se recomiendan canciones con like, descartadas, con señal neta negativa ni e
 - Para probar sin dejar rastro: `python pruebas/respaldo.py foto` antes y `python pruebas/respaldo.py restaurar` al terminar.
 - Al recargar el navegador se cierra la sesión de Streamlit; vuelve a entrar con «Iniciar sesión».
 - La cuenta no tiene contraseña porque la tabla `users` no la guarda; se entra con el correo o el nombre.
+- Free solo ve un aviso de saltos cuando le quedan 2 o menos en la hora, como en Spotify.
 
 ## Generador de la base de datos
 
@@ -302,7 +304,7 @@ python pruebas/test_app.py           # 3) pruebas del panel de administrador, ap
 python pruebas/test_usuario.py       # 4) pruebas de la app de usuario «Mi Spotify»
 ```
 
-`test_usuario.py` recorre el flujo de un usuario nuevo: registro, onboarding, reproducción completa, skip, anuncio cada 3 canciones, límite de 6 saltos con oferta Premium, me gusta, no me interesa, búsqueda, playlist, artista y 7 reglas de integridad.
+`test_usuario.py` recorre el flujo de un usuario nuevo: registro, onboarding, reproducción completa, skip, anuncio cada 3 canciones, límite de 6 saltos con oferta Premium, me gusta, no me interesa, búsqueda, playlist, artista 7 reglas de integridad y que el usuario no vea datos internos.
 
 `test_app.py` y `test_usuario.py` dan de alta, modifican y borran registros. Para no dejar rastro, **antes toma una foto** de la base con `pruebas/respaldo.py`, **al final la restaura** y comprueba con `CHECKSUM TABLE` que las 19 tablas quedaron idénticas. Para pruebas manuales en el navegador se usa lo mismo:
 

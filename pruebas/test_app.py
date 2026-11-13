@@ -84,7 +84,7 @@ def pruebas():
     if not ok: FALLAS.append("acceso de administrador")
 
     print("== Apartado 1: páginas")
-    for p in ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "✨ Para ti", "📡 Telemetría", "🗄️ Base de datos"]:
+    for p in ["🏠 Inicio", "📺 En vivo", "📈 Marketing", "🧠 Recomendaciones", "📡 Telemetría", "🗄️ Base de datos"]:
         check(pagina(p), f"Página {p}")
     guias = [len(pagina(p).expander) for p in ["🏠 Inicio", "📈 Marketing", "📡 Telemetría", "🗄️ Base de datos"]]
     ok = all(n >= 1 for n in guias)
@@ -118,20 +118,30 @@ def pruebas():
                 at.sidebar.selectbox[0].set_value(t).run(); check(at, f"Tabla vacía {t}")
         return
 
-    print("== Apartado 2: Para ti")
-    at = pagina("✨ Para ti")
+    print("== Apartado 2: 🧠 Recomendaciones (inspector del administrador)")
+    at = pagina("🧠 Recomendaciones")
     ids = [r[0] for r in q("SELECT user_id FROM users")]
     malos = []
     for uid in ids:
         at.sidebar.selectbox[0].set_value(uid).run()
         errs = [str(e.value) for e in at.exception] + [str(e.value) for e in at.error]
         if errs: malos.append((uid, errs))
-    if malos: FALLAS.append("Para ti recorrido")
-    print(f"[{'FAIL' if malos else 'OK'}] Para ti recorrido de {len(ids)} usuarios {malos or ''}")
-    for f in ["nueva", "escuchada", "guardada", "descartada", "Todas"]:
+    if malos: FALLAS.append("Recomendaciones recorrido")
+    print(f"[{'FAIL' if malos else 'OK'}] Recomendaciones recorrido de {len(ids)} usuarios {malos or ''}")
+    for f in ["nueva", "escuchada", "saltada", "guardada", "descartada", "Todas"]:
         at.selectbox[0].set_value(f).run(); check(at, f"Filtro {f}")
     at.sidebar.selectbox[0].set_value(3).run()
     [b for b in at.button if b.label.startswith("🔄")][0].click().run(); check(at, "Regenerar (usuario sin historial)")
+    at.sidebar.selectbox[0].set_value(1).run()
+    at.button_group[0].set_value("🧠 En vivo · aprendizaje.py").run()
+    [b for b in at.button if b.label.startswith("🔄")][0].click().run(); check(at, "Regenerar con el motor en vivo")
+    alg = q("SELECT DISTINCT algorithm FROM user_recommendations WHERE user_id=1")
+    ok = alg == [("telemetry_live_learning",)]
+    print(f"[{'OK' if ok else 'FAIL'}] El motor en vivo guardó sus recomendaciones {alg}")
+    if not ok: FALLAS.append("motor en vivo")
+    ok = not [b for b in at.button if b.label in ("▶ Escuchar", "❤ Me gusta", "Detalles", "✨ Ver pop-up")]
+    print(f"[{'OK' if ok else 'FAIL'}] El administrador no escucha ni da me gusta en nombre del usuario")
+    if not ok: FALLAS.append("acciones de usuario en el panel")
     print("   recs usuario 3:", q("SELECT algorithm, COUNT(*) FROM user_recommendations WHERE user_id=3 GROUP BY 1"))
 
     print("== Apartado 3: Telemetría")
@@ -187,7 +197,7 @@ def pruebas():
     q("INSERT INTO songs (title, artist, genre) VALUES ('Sin artista', '', NULL)", commit=True)
     sa = q("SELECT MAX(song_id) FROM songs")[0][0]
     q("INSERT INTO song_played (user_id, song_id, played_at) VALUES (%s, %s, NOW())", (vacio, sa), commit=True)
-    at = pagina("✨ Para ti"); at.sidebar.selectbox[0].set_value(vacio).run(); check(at, "Para ti usuario con nombre vacío")
+    at = pagina("🧠 Recomendaciones"); at.sidebar.selectbox[0].set_value(vacio).run(); check(at, "Recomendaciones usuario con nombre vacío")
     [b for b in at.button if b.label.startswith("🔄")][0].click().run(); check(at, "Regenerar con canción sin artista/género")
     print("   razones:", [r[0] for r in q("SELECT reason FROM user_recommendations WHERE user_id=%s LIMIT 3", (vacio,))])
     check(pagina("🏠 Inicio"), "Inicio con canción sin género")
